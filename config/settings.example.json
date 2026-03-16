@@ -11,6 +11,8 @@
   "overlay_state_path": "data/match_state.json",
   "ocr_engine": "easyocr",
   "ocr_use_gpu": "auto",
+  "use_reference_scores": true,
+  "reference_score_min_confidence": 0.55,
   "tesseract_cmd": "",
   "debug_mode": false,
   "show_preview": false,

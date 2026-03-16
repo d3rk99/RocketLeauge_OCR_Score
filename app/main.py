@@ -90,6 +90,8 @@ def run() -> None:
         app_cfg.engine,
         tesseract_cmd=app_cfg.tesseract_cmd,
         easyocr_use_gpu=parse_ocr_gpu_preference(app_cfg.ocr_use_gpu),
+        use_reference_scores=app_cfg.use_reference_scores,
+        reference_score_min_confidence=app_cfg.reference_score_min_confidence,
     )
     detector = ScoreDetector(app_cfg, state)
 
@@ -112,8 +114,8 @@ def run() -> None:
             save_debug_crop(b_pp, DEBUG_DIR, "team_b")
             save_debug_crop(t_pp, DEBUG_DIR, "timer")
 
-        a_res = engine.read_score(a_pp)
-        b_res = engine.read_score(b_pp)
+        a_res = engine.read_score(a_pp, side="team_a")
+        b_res = engine.read_score(b_pp, side="team_b")
         t_res = engine.read_timer(t_pp)
 
         detector.process(

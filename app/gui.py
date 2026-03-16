@@ -111,6 +111,8 @@ class OCRWorker:
             self.app_cfg.engine,
             tesseract_cmd=self.app_cfg.tesseract_cmd,
             easyocr_use_gpu=parse_ocr_gpu_preference(self.app_cfg.ocr_use_gpu),
+            use_reference_scores=self.app_cfg.use_reference_scores,
+            reference_score_min_confidence=self.app_cfg.reference_score_min_confidence,
         )
         detector = ScoreDetector(self.app_cfg, self.state)
         delay = 1.0 / max(1, self.app_cfg.fps)
@@ -121,8 +123,8 @@ class OCRWorker:
             a = preprocess_for_ocr(frame.team_a_crop)
             b = preprocess_for_ocr(frame.team_b_crop)
             timer = preprocess_for_ocr(frame.timer_crop)
-            a_res = engine.read_score(a)
-            b_res = engine.read_score(b)
+            a_res = engine.read_score(a, side="team_a")
+            b_res = engine.read_score(b, side="team_b")
             t_res = engine.read_timer(timer)
             detector.process(
                 ScoreReading(

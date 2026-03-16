@@ -32,6 +32,9 @@ config/
   settings.example.json
 data/
   match_state.json
+  score_reference/
+    team_a/0..20/
+    team_b/0..20/
 scripts/
   install.bat
   run.bat
@@ -105,6 +108,8 @@ Set:
 - `OCR_ENGINE=easyocr` or `tesseract`
 - `OCR_USE_GPU=auto|true|false` (EasyOCR only; `auto` enables GPU when CUDA is available)
 - `OCR_AUTO_TORCH_CUDA=true|false` (attempt one-time CUDA Torch repair at app startup when NVIDIA is detected)
+- `USE_REFERENCE_SCORES=true|false` (enable reference-template score matching before OCR)
+- `REFERENCE_SCORE_MIN_CONFIDENCE=0.55` (template-match confidence threshold, 0-1)
 - `TESSERACT_CMD` path if Tesseract is not on PATH
 - `DEBUG_MODE`, `SHOW_PREVIEW`, `HOTKEYS_ENABLED`
 
@@ -228,6 +233,27 @@ Then use `http://127.0.0.1:8000/overlay/index.html` in Browser Source.
 `overlay.js` tries several JSON paths and handles missing/invalid state gracefully.
 
 ---
+
+
+## Reference score training folders
+
+A template-based score matcher is included to improve reliability when OCR struggles with stylized digits.
+
+Folder layout (already scaffolded):
+
+```text
+data/score_reference/
+  team_a/
+    0/ 1/ 2/ ... 20/
+  team_b/
+    0/ 1/ 2/ ... 20/
+```
+
+How to use:
+- Put one or more example images of each score into its numeric folder.
+- Keep Team A examples in `team_a/<score>/` and Team B examples in `team_b/<score>/`.
+- Crop images tightly to the score digit region for best matching.
+- The app tries reference matching first, then falls back to OCR if no confident template match is found.
 
 ## OCR testing workflow
 

@@ -43,6 +43,8 @@ class Region:
 class AppConfig:
     fps: int
     ocr_use_gpu: str
+    use_reference_scores: bool
+    reference_score_min_confidence: float
     min_ocr_confidence: float
     vote_window: int
     stabilize_frames: int
@@ -123,6 +125,8 @@ def load_configs() -> tuple[AppConfig, RegionsConfig, MatchConfig]:
     app_cfg = AppConfig(
         fps=int(settings_data.get("fps", 8)),
         ocr_use_gpu=str(os.getenv("OCR_USE_GPU", settings_data.get("ocr_use_gpu", "auto"))).lower(),
+        use_reference_scores=str(os.getenv("USE_REFERENCE_SCORES", settings_data.get("use_reference_scores", True))).lower() in ("1", "true", "yes", "on"),
+        reference_score_min_confidence=float(os.getenv("REFERENCE_SCORE_MIN_CONFIDENCE", settings_data.get("reference_score_min_confidence", 0.55))),
         min_ocr_confidence=float(settings_data.get("min_ocr_confidence", 0.55)),
         vote_window=int(settings_data.get("vote_window", 7)),
         stabilize_frames=int(settings_data.get("stabilize_frames", 3)),
