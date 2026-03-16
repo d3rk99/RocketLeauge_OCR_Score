@@ -1,0 +1,72 @@
+:root {
+  --bg: rgba(12, 18, 30, 0.75);
+  --fg: #eff4ff;
+  --accent-a: #2dd4ff;
+  --accent-b: #f973ff;
+  --muted: #94a3b8;
+}
+
+html, body {
+  margin: 0;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  background: transparent;
+  font-family: "Segoe UI", Tahoma, sans-serif;
+  color: var(--fg);
+}
+
+.overlay-frame {
+  width: 1200px;
+  margin: 36px auto 0;
+  padding: 16px 24px;
+  border-radius: 18px;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+}
+
+.team {
+  width: 380px;
+  text-align: center;
+}
+
+.team .name {
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.team .score {
+  font-size: 106px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.team .games {
+  font-size: 30px;
+  color: var(--muted);
+}
+
+.team-a .score { color: var(--accent-a); }
+.team-b .score { color: var(--accent-b); }
+
+.center-info {
+  width: 300px;
+  text-align: center;
+}
+
+.series {
+  font-size: 34px;
+  font-weight: 700;
+}
+
+.status {
+  margin-top: 8px;
+  font-size: 22px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}

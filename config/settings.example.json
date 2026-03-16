@@ -1,0 +1,17 @@
+{
+  "team_a_name": "Team Alpha",
+  "team_b_name": "Team Bravo",
+  "series_type": "bo5",
+  "fps": 8,
+  "min_ocr_confidence": 0.55,
+  "vote_window": 7,
+  "stabilize_frames": 3,
+  "score_change_cooldown_seconds": 1.0,
+  "game_end_hold_seconds": 2.0,
+  "overlay_state_path": "data/match_state.json",
+  "ocr_engine": "easyocr",
+  "tesseract_cmd": "",
+  "debug_mode": false,
+  "show_preview": false,
+  "hotkeys_enabled": true
+}
