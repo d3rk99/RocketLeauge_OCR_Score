@@ -10,6 +10,7 @@ import cv2
 from app.capture import ScreenCapturer
 from app.config import DEBUG_DIR, LOG_DIR, load_configs
 from app.detector import ScoreDetector, ScoreReading
+from app.gui import ControlGUI
 from app.logging_utils import setup_logging
 from app.ocr import build_engine, preprocess_for_ocr, save_debug_crop
 from app.state import StateManager
@@ -69,6 +70,7 @@ def _draw_preview(frame, a_text: str, b_text: str) -> None:
 def run() -> None:
     parser = argparse.ArgumentParser(description="Rocket League OCR score tracker")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+    parser.add_argument("--gui", action="store_true", help="Launch Tk GUI control panel")
     args = parser.parse_args()
 
     app_cfg, regions_cfg, match_cfg = load_configs()
@@ -77,6 +79,10 @@ def run() -> None:
 
     setup_logging(LOG_DIR, debug=app_cfg.debug_mode)
     LOGGER.info("Starting with OCR engine=%s fps=%s", app_cfg.engine, app_cfg.fps)
+
+    if args.gui:
+        ControlGUI(app_cfg, regions_cfg, match_cfg).run()
+        return
 
     state = StateManager(app_cfg.overlay_state_path, match_cfg)
     capturer = ScreenCapturer(regions_cfg)

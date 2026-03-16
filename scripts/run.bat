@@ -19,7 +19,8 @@ if errorlevel 1 goto :error
 
 set ARGS=%*
 if "%ARGS%"=="" (
-  echo [INFO] Starting app...
+  set "ARGS=--gui"
+  echo [INFO] Starting app with default GUI mode...
 ) else (
   echo [INFO] Starting app with args: %ARGS%
 )

@@ -121,6 +121,22 @@ scripts\run.bat --debug
 
 Debug mode saves preprocessed score crops into `debug_frames/` to help diagnose OCR failures.
 
+### GUI control panel
+
+The app now includes a Tk GUI that acts as an operator control panel and scoreboard utility.
+
+- Launch GUI explicitly:
+
+```bat
+scripts\run.bat --gui
+```
+
+- `scripts\run.bat` with no arguments starts in GUI mode by default.
+- Use **Select OCR Region** to drag/select the scoreboard capture area on screen.
+- Use **Toggle Region Border** to show/hide a visible border overlay where OCR is looking.
+- Use **Start OCR / Stop OCR** and manual score/game controls directly in the GUI.
+- Use **Save Region** to write calibration to `config/regions.json`.
+
 Both Windows batch scripts now pause on failures so the console stays open and you can read error messages before closing.
 
 ---
