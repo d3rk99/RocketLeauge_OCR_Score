@@ -166,7 +166,7 @@ class EasyOCREngine(OCREngine):
         return OCRResult(value=value, confidence=best_conf, raw_text=cleaned)
 
     def read_timer(self, image: np.ndarray) -> TimerOCRResult:
-        out = self.reader.readtext(image, detail=1, paragraph=False, allowlist="0123456789:")
+        out = self.reader.readtext(image, detail=1, paragraph=False, allowlist="0123456789:;.")
         if not out:
             return TimerOCRResult(timer=None, confidence=0.0, raw_text="")
 
@@ -199,7 +199,7 @@ class TesseractEngine(OCREngine):
         return OCRResult(value=value, confidence=confidence, raw_text=text.strip())
 
     def read_timer(self, image: np.ndarray) -> TimerOCRResult:
-        config = "--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789:"
+        config = "--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789:;."
         text = self.pytesseract.image_to_string(image, config=config)
         data = self.pytesseract.image_to_data(image, config=config, output_type=self.pytesseract.Output.DICT)
         confs = _extract_tesseract_confidences(data)
@@ -231,15 +231,36 @@ def parse_score_text(text: str) -> int | None:
 
 
 def parse_game_timer_text(text: str) -> str | None:
-    cleaned = text.replace(" ", "")
-    match = re.search(r"(\d{1,2})[:](\d{2})", cleaned)
-    if not match:
+    cleaned = text.replace(" ", "").strip()
+    if not cleaned:
         return None
-    minutes = int(match.group(1))
-    seconds = int(match.group(2))
-    if seconds > 59:
-        return None
-    return f"{minutes}:{seconds:02d}"
+
+    # Normalize common OCR substitutions before parsing.
+    normalized = cleaned.upper()
+    normalized = normalized.replace("O", "0").replace("I", "1").replace("L", "1").replace("S", "5")
+
+    # Preferred format: M:SS / MM:SS with tolerated separator variants.
+    match = re.search(r"(\d{1,2})[:;\.\-](\d{2})", normalized)
+    if match:
+        minutes = int(match.group(1))
+        seconds = int(match.group(2))
+        if seconds <= 59:
+            return f"{minutes}:{seconds:02d}"
+
+    # Fallback when OCR drops separator entirely (e.g. '257' => '2:57', '301' => '3:01').
+    digits = re.sub(r"\D", "", normalized)
+    if len(digits) == 3:
+        minutes = int(digits[0])
+        seconds = int(digits[1:])
+        if seconds <= 59:
+            return f"{minutes}:{seconds:02d}"
+    if len(digits) == 4:
+        minutes = int(digits[:2])
+        seconds = int(digits[2:])
+        if seconds <= 59:
+            return f"{minutes}:{seconds:02d}"
+
+    return None
 
 
 def preprocess_for_ocr(image: np.ndarray) -> np.ndarray:

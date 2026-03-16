@@ -12,7 +12,7 @@ This project captures Rocket League HUD regions and writes `data/match_state.jso
 - Uses **pixel-change counts** (not score-digit OCR) to increment score by +1 when enough pixels flip between frames.
 - Detects game end when **both score regions have no white pixels for 50ms**.
 - Awards a game win to higher score, resets score to `0-0`, and waits for white pixels to return before tracking next game.
-- Still OCRs the timer region (EasyOCR/Tesseract).
+- Still OCRs the timer region (EasyOCR/Tesseract), including fallback parsing when separators are missed (e.g. `257` → `2:57`).
 - Writes overlay state JSON consumed by `overlay/index.html`.
 
 ## Project layout

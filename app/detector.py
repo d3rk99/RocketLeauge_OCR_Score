@@ -56,6 +56,8 @@ class ScoreDetector:
             "b_changed_pixels": b_changed_pixels,
             "timer_raw": reading.timer_raw,
             "timer_conf": reading.timer_conf,
+            "timer_parsed": reading.timer_value,
+            "timer_parse_mismatch": bool(reading.timer_raw and reading.timer_value is None),
             "game_ended_waiting_for_white": self.game_ended_waiting_for_white,
         }
 
