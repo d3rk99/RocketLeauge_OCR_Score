@@ -65,25 +65,35 @@ if errorlevel 1 (
 )
 
 echo [INFO] NVIDIA GPU detected. Attempting CUDA-enabled PyTorch install...
-echo [INFO] Installing torch + torchvision from cu121 index...
-pip install --upgrade torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+echo [INFO] Attempt 1: cu121 wheels (force reinstall)...
+pip install --upgrade --force-reinstall --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu121
+call :check_cuda_active
 if not errorlevel 1 (
-  echo [INFO] CUDA-enabled torch/torchvision install completed.
+  echo [INFO] CUDA torch install validated using cu121.
   exit /b 0
 )
 
-echo [WARN] Primary CUDA install attempt failed. Trying fallback install strategy...
-pip install --upgrade torch torchvision --extra-index-url https://download.pytorch.org/whl/cu121
+echo [WARN] cu121 install did not produce CUDA-active torch.
+echo [INFO] Attempt 2: cu124 wheels (force reinstall)...
+pip install --upgrade --force-reinstall --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu124
+call :check_cuda_active
 if not errorlevel 1 (
-  echo [INFO] Fallback CUDA install completed.
+  echo [INFO] CUDA torch install validated using cu124.
   exit /b 0
 )
 
-echo [WARN] CUDA-enabled PyTorch install failed. Keeping current Torch package.
-echo [WARN] Manual retry options:
-echo        pip install --upgrade torch torchvision --index-url https://download.pytorch.org/whl/cu121
-echo        pip install --upgrade torch torchvision --extra-index-url https://download.pytorch.org/whl/cu121
+echo [WARN] CUDA-enabled PyTorch install attempts did not result in CUDA-active torch.
+echo [WARN] Keeping currently installed torch package.
+echo [WARN] Common causes: unsupported Python version for CUDA wheels, incompatible NVIDIA driver, or environment conflicts.
+echo [WARN] Suggested checks:
+echo        1) python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+echo        2) nvidia-smi
 exit /b 0
+
+:check_cuda_active
+python -c "import torch,sys; sys.exit(0 if (torch.cuda.is_available() and torch.version.cuda is not None) else 1)" >nul 2>nul
+exit /b %errorlevel%
 
 :print_torch_diagnostics
 python -c "import torch; print('[INFO] torch.__version__ =', torch.__version__); print('[INFO] torch.version.cuda =', torch.version.cuda); print('[INFO] torch.cuda.is_available =', torch.cuda.is_available()); print('[INFO] torch.cuda.device_count =', torch.cuda.device_count())" >nul 2>nul
