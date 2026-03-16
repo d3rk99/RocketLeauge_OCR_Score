@@ -1,0 +1,15 @@
+{
+  "team_a_name": "Team Alpha",
+  "team_b_name": "Team Bravo",
+  "team_a_score": 0,
+  "team_b_score": 0,
+  "game_timer": "5:00",
+  "team_a_games": 0,
+  "team_b_games": 0,
+  "series_type": "bo5",
+  "target_games_to_win": 3,
+  "current_game_number": 1,
+  "last_update": "1970-01-01T00:00:00+00:00",
+  "match_status": "idle",
+  "ocr_debug": {}
+}
