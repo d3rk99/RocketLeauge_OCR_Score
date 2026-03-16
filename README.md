@@ -61,9 +61,9 @@ scripts\install.bat
 ```
 
 This script:
-- creates `venv` (tries `py -3.11`, `py -3`, `py`, then `python`),
-- upgrades pip,
-- installs Python dependencies,
+- detects Python 3.11+ (`py -3.11`, `py -3`, `py`, then `python`),
+- attempts automatic Python 3.11 install with `winget` if Python is missing,
+- creates `venv`, upgrades pip, and installs dependencies,
 - checks if `tesseract` is on PATH and prints guidance.
 
 ---

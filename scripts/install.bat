@@ -1,37 +1,28 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 
 REM Windows installer for Rocket League OCR tracker
 
 set "PYTHON_CMD="
 
+echo [INFO] Detecting Python runtime...
+call :detect_python
+if "%PYTHON_CMD%"=="" (
+  echo [WARN] Python 3.11+ not detected. Attempting automatic install via winget...
+  call :install_python_with_winget
+  if errorlevel 1 goto :error
+
+  echo [INFO] Re-checking Python runtime after installation...
+  call :detect_python
+  if "%PYTHON_CMD%"=="" goto :python_not_found
+)
+
+echo [INFO] Using Python command: %PYTHON_CMD%
+
 if not exist venv (
   echo [INFO] Creating virtual environment...
-
-  REM Try preferred launcher/runtime first.
-  py -3.11 -m venv venv >nul 2>nul
-  if not errorlevel 1 set "PYTHON_CMD=py -3.11"
-
-  REM Fallbacks for systems without exact 3.11 alias.
-  if "%PYTHON_CMD%"=="" (
-    py -3 -m venv venv >nul 2>nul
-    if not errorlevel 1 set "PYTHON_CMD=py -3"
-  )
-
-  if "%PYTHON_CMD%"=="" (
-    py -m venv venv >nul 2>nul
-    if not errorlevel 1 set "PYTHON_CMD=py"
-  )
-
-  REM Final fallback: plain python on PATH.
-  if "%PYTHON_CMD%"=="" (
-    python -m venv venv >nul 2>nul
-    if not errorlevel 1 set "PYTHON_CMD=python"
-  )
-
-  if "%PYTHON_CMD%"=="" goto :python_not_found
-
-  echo [INFO] Virtual environment created using: %PYTHON_CMD%
+  %PYTHON_CMD% -m venv venv
+  if errorlevel 1 goto :error
 ) else (
   echo [INFO] Using existing virtual environment.
 )
@@ -57,13 +48,60 @@ if %errorlevel% neq 0 (
 echo [SUCCESS] Install complete.
 exit /b 0
 
+:detect_python
+set "PYTHON_CMD="
+
+py -3.11 -c "import sys;sys.exit(0 if sys.version_info[:2] >= (3,11) else 1)" >nul 2>nul
+if not errorlevel 1 (
+  set "PYTHON_CMD=py -3.11"
+  goto :eof
+)
+
+py -3 -c "import sys;sys.exit(0 if sys.version_info[:2] >= (3,11) else 1)" >nul 2>nul
+if not errorlevel 1 (
+  set "PYTHON_CMD=py -3"
+  goto :eof
+)
+
+py -c "import sys;sys.exit(0 if sys.version_info[:2] >= (3,11) else 1)" >nul 2>nul
+if not errorlevel 1 (
+  set "PYTHON_CMD=py"
+  goto :eof
+)
+
+python -c "import sys;sys.exit(0 if sys.version_info[:2] >= (3,11) else 1)" >nul 2>nul
+if not errorlevel 1 (
+  set "PYTHON_CMD=python"
+  goto :eof
+)
+
+goto :eof
+
+:install_python_with_winget
+where winget >nul 2>nul
+if errorlevel 1 (
+  echo [ERROR] winget is not available on this machine.
+  echo [ERROR] Install Python 3.11+ manually from https://www.python.org/downloads/windows/
+  echo [ERROR] and enable "Add python.exe to PATH" during setup.
+  exit /b 1
+)
+
+echo [INFO] Installing Python 3.11 via winget (this can take a few minutes)...
+winget install --id Python.Python.3.11 -e --source winget --accept-package-agreements --accept-source-agreements
+if errorlevel 1 (
+  echo [ERROR] winget failed to install Python 3.11.
+  exit /b 1
+)
+
+REM Refresh PATH in this session in case installer updated user/machine PATH.
+set "PATH=%PATH%;%LocalAppData%\Programs\Python\Python311;%LocalAppData%\Programs\Python\Python311\Scripts"
+exit /b 0
+
 :python_not_found
 echo.
-echo [ERROR] No suitable Python runtime was found.
+echo [ERROR] No suitable Python runtime was found after automatic install attempt.
 echo [ERROR] Tried: py -3.11, py -3, py, and python.
-echo [ERROR] Install Python 3.11+ from https://www.python.org/downloads/windows/
-echo [ERROR] and enable "Add python.exe to PATH" during setup.
-echo [ERROR] You can verify installs with: py -0p
+echo [ERROR] Verify installs with: py -0p
 pause
 exit /b 103
 
