@@ -61,7 +61,7 @@ scripts\install.bat
 ```
 
 This script:
-- creates `venv`,
+- creates `venv` (tries `py -3.11`, `py -3`, `py`, then `python`),
 - upgrades pip,
 - installs Python dependencies,
 - checks if `tesseract` is on PATH and prints guidance.
