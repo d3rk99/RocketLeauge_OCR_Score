@@ -24,6 +24,10 @@ if "%ARGS%"=="" (
 python "%ROOT_DIR%\app\main.py" %ARGS%
 if errorlevel 1 goto :error
 
+echo.
+echo [SUCCESS] App exited normally.
+echo [INFO] Press any key to close this window.
+pause >nul
 exit /b 0
 
 :error

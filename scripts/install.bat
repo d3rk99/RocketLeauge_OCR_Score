@@ -47,7 +47,10 @@ if %errorlevel% neq 0 (
   echo [INFO] Tesseract executable detected.
 )
 
+echo.
 echo [SUCCESS] Install complete.
+echo [INFO] Press any key to close this window.
+pause >nul
 exit /b 0
 
 :detect_python

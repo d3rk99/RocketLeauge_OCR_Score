@@ -66,7 +66,7 @@ This script:
 - creates `venv`, upgrades pip, and installs dependencies,
 - checks if `tesseract` is on PATH and prints guidance.
 
-`install.bat` and `run.bat` resolve paths relative to the repository root, so they work even when launched from outside the repo directory.
+`install.bat` and `run.bat` resolve paths relative to the repository root, so they work even when launched from outside the repo directory. Both scripts also pause on success and failure so the window stays open for confirmation/troubleshooting.
 
 ---
 
