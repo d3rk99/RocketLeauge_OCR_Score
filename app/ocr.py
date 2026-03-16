@@ -18,7 +18,6 @@ import numpy as np
 
 LOGGER = logging.getLogger("ocr")
 CUDA_REPAIR_ATTEMPTED = False
-ROOT_DIR = Path(__file__).resolve().parent.parent
 
 
 @dataclass
@@ -45,72 +44,6 @@ class OCREngine(ABC):
         raise NotImplementedError
 
 
-class ReferenceScoreMatcher:
-    def __init__(self, root: Path, min_confidence: float = 0.55) -> None:
-        self.root = root
-        self.min_confidence = float(min_confidence)
-        self.templates: dict[str, dict[int, list[np.ndarray]]] = {"team_a": {}, "team_b": {}}
-        self._load()
-
-    def _load(self) -> None:
-        for side in ("team_a", "team_b"):
-            base = self.root / side
-            if not base.exists():
-                continue
-            for score_dir in base.iterdir():
-                if not score_dir.is_dir():
-                    continue
-                try:
-                    score = int(score_dir.name)
-                except ValueError:
-                    continue
-                imgs: list[np.ndarray] = []
-                for img_path in score_dir.iterdir():
-                    if img_path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".bmp", ".webp"}:
-                        continue
-                    img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
-                    if img is None:
-                        continue
-                    imgs.append(img)
-                if imgs:
-                    self.templates[side][score] = imgs
-
-        LOGGER.info(
-            "Loaded reference score templates: team_a=%s team_b=%s",
-            sum(len(v) for v in self.templates["team_a"].values()),
-            sum(len(v) for v in self.templates["team_b"].values()),
-        )
-
-    def match(self, image: np.ndarray, side: str) -> OCRResult | None:
-        side_key = "team_a" if side not in {"team_a", "team_b"} else side
-        bank = self.templates.get(side_key, {})
-        if not bank:
-            return None
-
-        target = image
-        if len(target.shape) == 3:
-            target = cv2.cvtColor(target, cv2.COLOR_BGR2GRAY)
-
-        best_score: int | None = None
-        best_conf = -1.0
-
-        for score, refs in bank.items():
-            for ref in refs:
-                ref_resized = cv2.resize(ref, (target.shape[1], target.shape[0]), interpolation=cv2.INTER_AREA)
-                # normalized absolute difference score -> confidence [0..1]
-                diff = cv2.absdiff(target, ref_resized)
-                mean_diff = float(np.mean(diff))
-                conf = max(0.0, 1.0 - (mean_diff / 255.0))
-                if conf > best_conf:
-                    best_conf = conf
-                    best_score = score
-
-        if best_score is None or best_conf < self.min_confidence:
-            return None
-
-        return OCRResult(value=best_score, confidence=best_conf, raw_text=f"ref:{best_score}")
-
-
 def _has_nvidia_gpu() -> bool:
     try:
         proc = subprocess.run(["nvidia-smi"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=8)
@@ -126,9 +59,7 @@ def _try_repair_torch_cuda() -> None:
     CUDA_REPAIR_ATTEMPTED = True
 
     auto_fix = os.getenv("OCR_AUTO_TORCH_CUDA", "true").strip().lower() in {"1", "true", "yes", "on"}
-    if not auto_fix:
-        return
-    if not _has_nvidia_gpu():
+    if not auto_fix or not _has_nvidia_gpu():
         return
 
     LOGGER.warning("NVIDIA GPU detected but torch CUDA unavailable. Attempting one-time CUDA torch repair...")
@@ -198,10 +129,7 @@ def resolve_easyocr_gpu(use_gpu: bool | None) -> bool:
         if has_cuda:
             LOGGER.info("EasyOCR auto GPU detection: CUDA available, enabling GPU.")
             return True
-        LOGGER.warning(
-            "EasyOCR auto GPU detection: CUDA not available, using CPU. "
-            "If you have an NVIDIA GPU, rerun scripts\\install.bat to install CUDA PyTorch wheels."
-        )
+        LOGGER.warning("EasyOCR auto GPU detection: CUDA not available, using CPU.")
         return False
     except Exception as exc:
         LOGGER.warning("EasyOCR auto GPU detection failed (%s); using CPU.", exc)
@@ -209,7 +137,7 @@ def resolve_easyocr_gpu(use_gpu: bool | None) -> bool:
 
 
 class EasyOCREngine(OCREngine):
-    def __init__(self, use_gpu: bool | None = None, reference_matcher: ReferenceScoreMatcher | None = None) -> None:
+    def __init__(self, use_gpu: bool | None = None) -> None:
         import easyocr
 
         gpu = resolve_easyocr_gpu(use_gpu)
@@ -221,14 +149,8 @@ class EasyOCREngine(OCREngine):
             )
             logging.getLogger("easyocr.easyocr").setLevel(logging.ERROR)
         self.reader = easyocr.Reader(["en"], gpu=gpu)
-        self.reference_matcher = reference_matcher
 
     def read_score(self, image: np.ndarray, side: str = "team_a") -> OCRResult:
-        if self.reference_matcher:
-            matched = self.reference_matcher.match(image, side)
-            if matched is not None:
-                return matched
-
         out = self.reader.readtext(image, detail=1, paragraph=False, allowlist="0123456789")
         if not out:
             return OCRResult(value=None, confidence=0.0, raw_text="")
@@ -260,24 +182,17 @@ class EasyOCREngine(OCREngine):
 
 
 class TesseractEngine(OCREngine):
-    def __init__(self, tesseract_cmd: str | None = None, reference_matcher: ReferenceScoreMatcher | None = None) -> None:
+    def __init__(self, tesseract_cmd: str | None = None) -> None:
         import pytesseract
 
         self.pytesseract = pytesseract
         if tesseract_cmd:
             self.pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
-        self.reference_matcher = reference_matcher
 
     def read_score(self, image: np.ndarray, side: str = "team_a") -> OCRResult:
-        if self.reference_matcher:
-            matched = self.reference_matcher.match(image, side)
-            if matched is not None:
-                return matched
-
         config = "--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789"
         text = self.pytesseract.image_to_string(image, config=config)
         data = self.pytesseract.image_to_data(image, config=config, output_type=self.pytesseract.Output.DICT)
-
         confs = _extract_tesseract_confidences(data)
         confidence = max(confs) if confs else 0.0
         value = parse_score_text(text)
@@ -287,7 +202,6 @@ class TesseractEngine(OCREngine):
         config = "--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789:"
         text = self.pytesseract.image_to_string(image, config=config)
         data = self.pytesseract.image_to_data(image, config=config, output_type=self.pytesseract.Output.DICT)
-
         confs = _extract_tesseract_confidences(data)
         confidence = max(confs) if confs else 0.0
         timer = parse_game_timer_text(text)
@@ -338,25 +252,22 @@ def preprocess_for_ocr(image: np.ndarray) -> np.ndarray:
     return morph
 
 
+def preprocess_luma_mask(image: np.ndarray, luma_threshold: int) -> np.ndarray:
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, mask = cv2.threshold(gray, int(luma_threshold), 255, cv2.THRESH_BINARY)
+    return mask
+
+
 def build_engine(
     name: str,
     tesseract_cmd: str | None = None,
     easyocr_use_gpu: bool | None = None,
-    use_reference_scores: bool = True,
-    reference_score_min_confidence: float = 0.55,
 ) -> OCREngine:
-    reference_matcher = None
-    if use_reference_scores:
-        reference_matcher = ReferenceScoreMatcher(
-            ROOT_DIR / "data" / "score_reference",
-            min_confidence=reference_score_min_confidence,
-        )
-
     normalized = name.lower().strip()
     if normalized == "easyocr":
-        return EasyOCREngine(use_gpu=easyocr_use_gpu, reference_matcher=reference_matcher)
+        return EasyOCREngine(use_gpu=easyocr_use_gpu)
     if normalized == "tesseract":
-        return TesseractEngine(tesseract_cmd=tesseract_cmd, reference_matcher=reference_matcher)
+        return TesseractEngine(tesseract_cmd=tesseract_cmd)
     raise ValueError(f"Unsupported OCR engine '{name}'")
 
 

@@ -7,10 +7,13 @@ import tkinter as tk
 from dataclasses import asdict
 from tkinter import messagebox, ttk
 
+import cv2
+from PIL import Image, ImageTk
+
 from app.capture import ScreenCapturer
 from app.config import CONFIG_DIR, AppConfig, MatchConfig, Region, RegionsConfig, parse_ocr_gpu_preference, target_games_to_win
 from app.detector import ScoreDetector, ScoreReading
-from app.ocr import build_engine, preprocess_for_ocr
+from app.ocr import build_engine, preprocess_for_ocr, preprocess_luma_mask
 from app.state import StateManager
 
 
@@ -23,7 +26,6 @@ class RegionSelector(tk.Toplevel):
         self.configure(bg="black")
         self.canvas = tk.Canvas(self, cursor="cross", bg="black", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
-
         self.start_x = 0
         self.start_y = 0
         self.rect_id = None
@@ -83,10 +85,11 @@ class RegionOverlay:
 
 
 class OCRWorker:
-    def __init__(self, app_cfg: AppConfig, regions_cfg: RegionsConfig, state: StateManager) -> None:
+    def __init__(self, app_cfg: AppConfig, regions_cfg: RegionsConfig, state: StateManager, preview_callback=None) -> None:
         self.app_cfg = app_cfg
         self.regions_cfg = regions_cfg
         self.state = state
+        self.preview_callback = preview_callback
         self.stop_event = threading.Event()
         self.thread: threading.Thread | None = None
 
@@ -111,34 +114,31 @@ class OCRWorker:
             self.app_cfg.engine,
             tesseract_cmd=self.app_cfg.tesseract_cmd,
             easyocr_use_gpu=parse_ocr_gpu_preference(self.app_cfg.ocr_use_gpu),
-            use_reference_scores=self.app_cfg.use_reference_scores,
-            reference_score_min_confidence=self.app_cfg.reference_score_min_confidence,
         )
         detector = ScoreDetector(self.app_cfg, self.state)
-        delay = 1.0 / max(1, self.app_cfg.fps)
 
         while not self.stop_event.is_set():
             start = time.perf_counter()
             frame = capturer.grab()
-            a = preprocess_for_ocr(frame.team_a_crop)
-            b = preprocess_for_ocr(frame.team_b_crop)
+            a_mask = preprocess_luma_mask(frame.team_a_crop, self.app_cfg.luma_threshold)
+            b_mask = preprocess_luma_mask(frame.team_b_crop, self.app_cfg.luma_threshold)
             timer = preprocess_for_ocr(frame.timer_crop)
-            a_res = engine.read_score(a, side="team_a")
-            b_res = engine.read_score(b, side="team_b")
             t_res = engine.read_timer(timer)
+
             detector.process(
                 ScoreReading(
-                    a_value=a_res.value,
-                    b_value=b_res.value,
+                    a_mask=a_mask,
+                    b_mask=b_mask,
                     timer_value=t_res.timer,
-                    a_conf=a_res.confidence,
-                    b_conf=b_res.confidence,
                     timer_conf=t_res.confidence,
-                    a_raw=a_res.raw_text,
-                    b_raw=b_res.raw_text,
                     timer_raw=t_res.raw_text,
                 )
             )
+
+            if self.preview_callback:
+                self.preview_callback(a_mask)
+
+            delay = 1.0 / max(1, self.app_cfg.fps)
             elapsed = time.perf_counter() - start
             if delay - elapsed > 0:
                 time.sleep(delay - elapsed)
@@ -148,16 +148,20 @@ class ControlGUI:
     def __init__(self, app_cfg: AppConfig, regions_cfg: RegionsConfig, match_cfg: MatchConfig) -> None:
         self.root = tk.Tk()
         self.root.title("Rocket League OCR Control Panel")
-        self.root.geometry("860x600")
+        self.root.geometry("980x700")
 
         self.app_cfg = app_cfg
         self.regions_cfg = regions_cfg
         self.state = StateManager(app_cfg.overlay_state_path, match_cfg)
-        self.worker = OCRWorker(app_cfg, regions_cfg, self.state)
+        self.preview_lock = threading.Lock()
+        self.latest_preview: ImageTk.PhotoImage | None = None
+
+        self.worker = OCRWorker(app_cfg, regions_cfg, self.state, preview_callback=self._update_preview_frame)
         self.overlay = RegionOverlay(self.root)
         self.overlay_visible = False
 
         self._build_ui()
+        self._update_preview_image()
         self._refresh_state()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -167,10 +171,11 @@ class ControlGUI:
 
         top = ttk.LabelFrame(frame, text="Match")
         top.pack(fill="x", pady=6)
+        snap = self.state.snapshot()
 
-        self.team_a_var = tk.StringVar(value=self.state.snapshot().team_a_name)
-        self.team_b_var = tk.StringVar(value=self.state.snapshot().team_b_name)
-        self.series_var = tk.StringVar(value=self.state.snapshot().series_type)
+        self.team_a_var = tk.StringVar(value=snap.team_a_name)
+        self.team_b_var = tk.StringVar(value=snap.team_b_name)
+        self.series_var = tk.StringVar(value=snap.series_type)
 
         ttk.Label(top, text="Team A").grid(row=0, column=0, sticky="w", padx=4, pady=4)
         ttk.Entry(top, textvariable=self.team_a_var, width=20).grid(row=0, column=1, padx=4)
@@ -182,7 +187,6 @@ class ControlGUI:
 
         perf = ttk.LabelFrame(frame, text="OCR Device + Performance")
         perf.pack(fill="x", pady=6)
-
         self.device_var = tk.StringVar(value=self._to_device_ui_value(self.app_cfg.ocr_use_gpu))
         self.fps_var = tk.IntVar(value=max(1, int(self.app_cfg.fps)))
         self.hw_status_var = tk.StringVar(value=self._detect_hardware_status())
@@ -191,9 +195,15 @@ class ControlGUI:
         ttk.Combobox(perf, textvariable=self.device_var, values=["Auto", "GPU", "CPU"], state="readonly", width=10).grid(row=0, column=1, padx=4)
         ttk.Label(perf, text="FPS").grid(row=0, column=2, sticky="w", padx=4)
         ttk.Spinbox(perf, from_=1, to=30, textvariable=self.fps_var, width=6).grid(row=0, column=3, padx=4)
-        ttk.Button(perf, text="Apply Device/FPS", command=self._apply_device_and_fps).grid(row=0, column=4, padx=6)
-        ttk.Button(perf, text="Save as Default", command=self._save_runtime_defaults).grid(row=0, column=5, padx=6)
-        ttk.Label(perf, textvariable=self.hw_status_var).grid(row=1, column=0, columnspan=6, sticky="w", padx=4, pady=4)
+
+        ttk.Label(perf, text="Luma Threshold").grid(row=0, column=4, sticky="w", padx=4)
+        self.luma_var = tk.IntVar(value=self.app_cfg.luma_threshold)
+        ttk.Scale(perf, from_=150, to=255, variable=self.luma_var, orient="horizontal", length=180).grid(row=0, column=5, padx=4)
+        ttk.Spinbox(perf, from_=150, to=255, textvariable=self.luma_var, width=5).grid(row=0, column=6, padx=4)
+
+        ttk.Button(perf, text="Apply", command=self._apply_device_fps_luma).grid(row=0, column=7, padx=6)
+        ttk.Button(perf, text="Save as Default", command=self._save_runtime_defaults).grid(row=0, column=8, padx=6)
+        ttk.Label(perf, textvariable=self.hw_status_var).grid(row=1, column=0, columnspan=9, sticky="w", padx=4, pady=4)
 
         ctl = ttk.LabelFrame(frame, text="OCR Regions (absolute screen regions)")
         ctl.pack(fill="x", pady=6)
@@ -211,19 +221,37 @@ class ControlGUI:
         ttk.Button(ctl, text="Start OCR", command=self._start_ocr).grid(row=2, column=2, padx=4)
         ttk.Button(ctl, text="Stop OCR", command=self._stop_ocr).grid(row=2, column=3, padx=4)
 
-        score = ttk.LabelFrame(frame, text="Scoreboard Controls")
-        score.pack(fill="x", pady=6)
-        ttk.Button(score, text="Reset Current Game", command=lambda: self.state.reset_current_game_score()).grid(row=0, column=0, padx=4, pady=4)
-        ttk.Button(score, text="Award Team A Game", command=lambda: self.state.award_game("a")).grid(row=0, column=1, padx=4, pady=4)
-        ttk.Button(score, text="Award Team B Game", command=lambda: self.state.award_game("b")).grid(row=0, column=2, padx=4, pady=4)
+        content = ttk.Frame(frame)
+        content.pack(fill="both", expand=True, pady=6)
 
-        live = ttk.LabelFrame(frame, text="Live State")
-        live.pack(fill="both", expand=True, pady=6)
+        live = ttk.LabelFrame(content, text="Live State")
+        live.pack(side="left", fill="both", expand=True, padx=(0, 6))
         self.live_text = tk.Text(live, height=14)
         self.live_text.pack(fill="both", expand=True, padx=4, pady=4)
         self.live_text.configure(state="disabled")
 
+        preview_box = ttk.LabelFrame(content, text="Team A Luma Preview")
+        preview_box.pack(side="right", fill="both", expand=False)
+        self.preview_label = ttk.Label(preview_box, text="No preview yet")
+        self.preview_label.pack(padx=8, pady=8)
+
         self._update_region_label()
+
+    def _update_preview_frame(self, mask) -> None:
+        resized = cv2.resize(mask, (260, 90), interpolation=cv2.INTER_NEAREST)
+        rgb = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
+        img = Image.fromarray(rgb)
+        photo = ImageTk.PhotoImage(image=img)
+        with self.preview_lock:
+            self.latest_preview = photo
+
+    def _update_preview_image(self) -> None:
+        with self.preview_lock:
+            photo = self.latest_preview
+        if photo is not None:
+            self.preview_label.configure(image=photo, text="")
+            self.preview_label.image = photo
+        self.root.after(120, self._update_preview_image)
 
     def _detect_hardware_status(self) -> str:
         try:
@@ -252,9 +280,10 @@ class ControlGUI:
             return "false"
         return "auto"
 
-    def _apply_device_and_fps(self) -> None:
+    def _apply_device_fps_luma(self) -> None:
         desired_gpu = self._from_device_ui_value(self.device_var.get())
         desired_fps = max(1, min(30, int(self.fps_var.get())))
+        desired_luma = max(150, min(255, int(self.luma_var.get())))
 
         was_running = self.worker.is_running()
         if was_running:
@@ -262,12 +291,12 @@ class ControlGUI:
 
         self.app_cfg.ocr_use_gpu = desired_gpu
         self.app_cfg.fps = desired_fps
-
+        self.app_cfg.luma_threshold = desired_luma
         self.hw_status_var.set(self._detect_hardware_status())
 
         if was_running:
             self.worker.start()
-        messagebox.showinfo("Applied", f"Applied OCR device={self.device_var.get()} and FPS={desired_fps}")
+        messagebox.showinfo("Applied", f"Applied device={self.device_var.get()}, FPS={desired_fps}, luma={desired_luma}")
 
     def _save_runtime_defaults(self) -> None:
         settings_path = CONFIG_DIR / "settings.json"
@@ -280,6 +309,7 @@ class ControlGUI:
 
         settings["fps"] = int(self.fps_var.get())
         settings["ocr_use_gpu"] = self._from_device_ui_value(self.device_var.get())
+        settings["luma_threshold"] = int(self.luma_var.get())
         settings_path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         messagebox.showinfo("Saved", f"Saved defaults to {settings_path}")
 
@@ -304,9 +334,7 @@ class ControlGUI:
             return
 
         left, top, width, height = selector.result
-        region = Region(top=top, left=left, width=width, height=height)
-        setattr(self.regions_cfg, target, region)
-
+        setattr(self.regions_cfg, target, Region(top=top, left=left, width=width, height=height))
         self._update_region_label()
         if self.overlay_visible:
             self.overlay.show(self.regions_cfg.team_a_score, self.regions_cfg.team_b_score, self.regions_cfg.game_timer)
@@ -366,6 +394,7 @@ class ControlGUI:
                     "current_game_number": snap.current_game_number,
                     "match_status": snap.match_status,
                     "last_update": snap.last_update,
+                    "ocr_debug": snap.ocr_debug,
                 },
                 indent=2,
             ),

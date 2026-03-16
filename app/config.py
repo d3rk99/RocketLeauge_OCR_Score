@@ -43,13 +43,16 @@ class Region:
 class AppConfig:
     fps: int
     ocr_use_gpu: str
-    use_reference_scores: bool
-    reference_score_min_confidence: float
     min_ocr_confidence: float
     vote_window: int
     stabilize_frames: int
     score_change_cooldown_seconds: float
     game_end_hold_seconds: float
+    luma_threshold: int
+    white_pixel_min_count: int
+    pixel_change_ratio_threshold: float
+    score_increment_cooldown_ms: int
+    game_end_no_white_ms: int
     overlay_state_path: Path
     engine: str
     tesseract_cmd: str | None
@@ -92,7 +95,6 @@ def _region_from_data(data: dict, key: str) -> Region | None:
 
 
 def _migrate_legacy_regions(data: dict) -> RegionsConfig:
-    # Legacy format supported "scoreboard" + subregions relative to scoreboard.
     if "scoreboard" in data:
         sb = Region.from_dict(data["scoreboard"])
 
@@ -107,7 +109,6 @@ def _migrate_legacy_regions(data: dict) -> RegionsConfig:
             game_timer=abs_region("game_timer") if "game_timer" in data else timer_default,
         )
 
-    # New format: all three regions are absolute and independent.
     team_a = _region_from_data(data, "team_a_score")
     team_b = _region_from_data(data, "team_b_score")
     timer = _region_from_data(data, "game_timer")
@@ -125,13 +126,16 @@ def load_configs() -> tuple[AppConfig, RegionsConfig, MatchConfig]:
     app_cfg = AppConfig(
         fps=int(settings_data.get("fps", 8)),
         ocr_use_gpu=str(os.getenv("OCR_USE_GPU", settings_data.get("ocr_use_gpu", "auto"))).lower(),
-        use_reference_scores=str(os.getenv("USE_REFERENCE_SCORES", settings_data.get("use_reference_scores", True))).lower() in ("1", "true", "yes", "on"),
-        reference_score_min_confidence=float(os.getenv("REFERENCE_SCORE_MIN_CONFIDENCE", settings_data.get("reference_score_min_confidence", 0.55))),
         min_ocr_confidence=float(settings_data.get("min_ocr_confidence", 0.55)),
         vote_window=int(settings_data.get("vote_window", 7)),
         stabilize_frames=int(settings_data.get("stabilize_frames", 3)),
         score_change_cooldown_seconds=float(settings_data.get("score_change_cooldown_seconds", 1.0)),
         game_end_hold_seconds=float(settings_data.get("game_end_hold_seconds", 2.0)),
+        luma_threshold=int(os.getenv("LUMA_THRESHOLD", settings_data.get("luma_threshold", 215))),
+        white_pixel_min_count=int(os.getenv("WHITE_PIXEL_MIN_COUNT", settings_data.get("white_pixel_min_count", 12))),
+        pixel_change_ratio_threshold=float(os.getenv("PIXEL_CHANGE_RATIO_THRESHOLD", settings_data.get("pixel_change_ratio_threshold", 0.18))),
+        score_increment_cooldown_ms=int(os.getenv("SCORE_INCREMENT_COOLDOWN_MS", settings_data.get("score_increment_cooldown_ms", 650))),
+        game_end_no_white_ms=int(os.getenv("GAME_END_NO_WHITE_MS", settings_data.get("game_end_no_white_ms", 50))),
         overlay_state_path=ROOT_DIR / settings_data.get("overlay_state_path", "data/match_state.json"),
         engine=os.getenv("OCR_ENGINE", settings_data.get("ocr_engine", "easyocr")),
         tesseract_cmd=os.getenv("TESSERACT_CMD", settings_data.get("tesseract_cmd")),

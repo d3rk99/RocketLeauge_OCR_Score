@@ -12,7 +12,7 @@ from app.config import DEBUG_DIR, LOG_DIR, load_configs, parse_ocr_gpu_preferenc
 from app.detector import ScoreDetector, ScoreReading
 from app.gui import ControlGUI
 from app.logging_utils import setup_logging
-from app.ocr import build_engine, preprocess_for_ocr, save_debug_crop
+from app.ocr import build_engine, preprocess_for_ocr, preprocess_luma_mask, save_debug_crop
 from app.state import StateManager
 
 
@@ -61,8 +61,8 @@ def _safe_award(state: StateManager, side: str) -> None:
 
 def _draw_preview(frame, a_text: str, b_text: str) -> None:
     preview = frame.copy()
-    cv2.putText(preview, f"A: {a_text}", (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-    cv2.putText(preview, f"B: {b_text}", (12, 58), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+    cv2.putText(preview, f"A mask: {a_text}", (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+    cv2.putText(preview, f"B mask: {b_text}", (12, 58), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
     cv2.imshow("Rocket League OCR Debug", preview)
     cv2.waitKey(1)
 
@@ -90,8 +90,6 @@ def run() -> None:
         app_cfg.engine,
         tesseract_cmd=app_cfg.tesseract_cmd,
         easyocr_use_gpu=parse_ocr_gpu_preference(app_cfg.ocr_use_gpu),
-        use_reference_scores=app_cfg.use_reference_scores,
-        reference_score_min_confidence=app_cfg.reference_score_min_confidence,
     )
     detector = ScoreDetector(app_cfg, state)
 
@@ -105,35 +103,33 @@ def run() -> None:
         start = time.perf_counter()
         result = capturer.grab()
 
-        a_pp = preprocess_for_ocr(result.team_a_crop)
-        b_pp = preprocess_for_ocr(result.team_b_crop)
+        a_mask = preprocess_luma_mask(result.team_a_crop, app_cfg.luma_threshold)
+        b_mask = preprocess_luma_mask(result.team_b_crop, app_cfg.luma_threshold)
         t_pp = preprocess_for_ocr(result.timer_crop)
 
         if app_cfg.debug_mode:
-            save_debug_crop(a_pp, DEBUG_DIR, "team_a")
-            save_debug_crop(b_pp, DEBUG_DIR, "team_b")
+            save_debug_crop(a_mask, DEBUG_DIR, "team_a_mask")
+            save_debug_crop(b_mask, DEBUG_DIR, "team_b_mask")
             save_debug_crop(t_pp, DEBUG_DIR, "timer")
 
-        a_res = engine.read_score(a_pp, side="team_a")
-        b_res = engine.read_score(b_pp, side="team_b")
         t_res = engine.read_timer(t_pp)
 
         detector.process(
             ScoreReading(
-                a_value=a_res.value,
-                b_value=b_res.value,
+                a_mask=a_mask,
+                b_mask=b_mask,
                 timer_value=t_res.timer,
-                a_conf=a_res.confidence,
-                b_conf=b_res.confidence,
                 timer_conf=t_res.confidence,
-                a_raw=a_res.raw_text,
-                b_raw=b_res.raw_text,
                 timer_raw=t_res.raw_text,
             )
         )
 
         if app_cfg.show_preview:
-            _draw_preview(result.full_frame, f"{a_res.value}/{a_res.confidence:.2f}", f"{b_res.value}/{b_res.confidence:.2f}")
+            _draw_preview(
+                result.full_frame,
+                str(cv2.countNonZero(a_mask)),
+                str(cv2.countNonZero(b_mask)),
+            )
 
         elapsed = time.perf_counter() - start
         to_sleep = poll_delay - elapsed

@@ -1,23 +1,20 @@
 from __future__ import annotations
 
-from collections import Counter, deque
 from dataclasses import dataclass
 import time
 
+import numpy as np
+
 from app.config import AppConfig
-from app.state import StateManager
+from app.state import MatchState, StateManager
 
 
 @dataclass
 class ScoreReading:
-    a_value: int | None
-    b_value: int | None
+    a_mask: np.ndarray
+    b_mask: np.ndarray
     timer_value: str | None
-    a_conf: float
-    b_conf: float
     timer_conf: float
-    a_raw: str
-    b_raw: str
     timer_raw: str
 
 
@@ -25,110 +22,131 @@ class ScoreDetector:
     def __init__(self, config: AppConfig, state: StateManager) -> None:
         self.cfg = config
         self.state = state
-        self.a_hist: deque[int] = deque(maxlen=config.vote_window)
-        self.b_hist: deque[int] = deque(maxlen=config.vote_window)
-        self.timer_hist: deque[str] = deque(maxlen=config.vote_window)
-        self.last_score_change_ts = 0.0
+        self.last_a_mask: np.ndarray | None = None
+        self.last_b_mask: np.ndarray | None = None
+        self.last_a_increment_ms = 0
+        self.last_b_increment_ms = 0
+        self.no_white_since_ms: int | None = None
+        self.game_ended_waiting_for_white = False
         self.last_timer_update_ts = 0.0
-        self.game_end_candidate_ts: float | None = None
-        self.last_increment_game_number = state.snapshot().current_game_number
 
     def process(self, reading: ScoreReading) -> None:
-        if reading.a_value is not None and reading.a_conf >= self.cfg.min_ocr_confidence:
-            self.a_hist.append(reading.a_value)
-        if reading.b_value is not None and reading.b_conf >= self.cfg.min_ocr_confidence:
-            self.b_hist.append(reading.b_value)
-        if reading.timer_value is not None and reading.timer_conf >= self.cfg.min_ocr_confidence:
-            self.timer_hist.append(reading.timer_value)
-
-        stable_a = self._stable_value(self.a_hist)
-        stable_b = self._stable_value(self.b_hist)
-        stable_timer = self._stable_value(self.timer_hist)
-
+        now_ms = int(time.time() * 1000)
         current = self.state.snapshot()
-        debug_payload = {
-            "ocr": {
-                "a_raw": reading.a_raw,
-                "b_raw": reading.b_raw,
-                "timer_raw": reading.timer_raw,
-                "a_conf": reading.a_conf,
-                "b_conf": reading.b_conf,
-                "timer_conf": reading.timer_conf,
-            },
-            "stable": {"a": stable_a, "b": stable_b, "timer": stable_timer},
-        }
 
-        if stable_timer is not None and stable_timer != current.game_timer:
+        a_white = int(np.count_nonzero(reading.a_mask))
+        b_white = int(np.count_nonzero(reading.b_mask))
+        a_change = self._change_ratio(self.last_a_mask, reading.a_mask)
+        b_change = self._change_ratio(self.last_b_mask, reading.b_mask)
+
+        if reading.timer_value is not None and reading.timer_conf >= self.cfg.min_ocr_confidence:
             now = time.time()
             if now - self.last_timer_update_ts >= 0.25:
-                self.state.update(game_timer=stable_timer, ocr_debug=debug_payload)
+                self.state.update(game_timer=reading.timer_value)
                 self.last_timer_update_ts = now
                 current = self.state.snapshot()
 
-        if stable_a is None or stable_b is None:
-            self.state.update(ocr_debug=debug_payload)
+        debug_payload = {
+            "tracking_mode": "pixel_change",
+            "luma_threshold": self.cfg.luma_threshold,
+            "a_white_pixels": a_white,
+            "b_white_pixels": b_white,
+            "a_change_ratio": round(a_change, 4),
+            "b_change_ratio": round(b_change, 4),
+            "timer_raw": reading.timer_raw,
+            "timer_conf": reading.timer_conf,
+            "game_ended_waiting_for_white": self.game_ended_waiting_for_white,
+        }
+
+        if self.game_ended_waiting_for_white:
+            if a_white >= self.cfg.white_pixel_min_count and b_white >= self.cfg.white_pixel_min_count:
+                self.game_ended_waiting_for_white = False
+                self.no_white_since_ms = None
+                self.last_a_mask = reading.a_mask
+                self.last_b_mask = reading.b_mask
+                self.state.update(match_status="live", ocr_debug=debug_payload)
+            else:
+                self.state.update(ocr_debug=debug_payload)
             return
 
-        now = time.time()
-        score_changed = stable_a != current.team_a_score or stable_b != current.team_b_score
-        if score_changed and now - self.last_score_change_ts >= self.cfg.score_change_cooldown_seconds:
-            self.state.update(team_a_score=stable_a, team_b_score=stable_b, match_status="live", ocr_debug=debug_payload)
-            self.last_score_change_ts = now
-            current = self.state.snapshot()
+        self._track_score_increment(current, now_ms, a_change, b_change, a_white, b_white, debug_payload)
+        current = self.state.snapshot()
 
-        self._evaluate_game_end(current, now, debug_payload)
+        both_dark = a_white < self.cfg.white_pixel_min_count and b_white < self.cfg.white_pixel_min_count
+        if both_dark:
+            if self.no_white_since_ms is None:
+                self.no_white_since_ms = now_ms
+            elif now_ms - self.no_white_since_ms >= self.cfg.game_end_no_white_ms:
+                self._finalize_game(current, debug_payload)
+                self.game_ended_waiting_for_white = True
+                self.no_white_since_ms = None
+        else:
+            self.no_white_since_ms = None
+            self.state.update(match_status="live", ocr_debug=debug_payload)
 
-    def _evaluate_game_end(self, current, now: float, debug_payload: dict) -> None:
-        was_live = current.match_status in {"live", "game_final"}
-        had_points = current.team_a_score > 0 or current.team_b_score > 0
-        reset_like = current.team_a_score == 0 and current.team_b_score == 0
+        self.last_a_mask = reading.a_mask
+        self.last_b_mask = reading.b_mask
 
-        if was_live and had_points and not reset_like:
-            self.game_end_candidate_ts = now
+    def _track_score_increment(
+        self,
+        current: MatchState,
+        now_ms: int,
+        a_change: float,
+        b_change: float,
+        a_white: int,
+        b_white: int,
+        debug_payload: dict,
+    ) -> None:
+        changed = False
+        if (
+            a_white >= self.cfg.white_pixel_min_count
+            and a_change >= self.cfg.pixel_change_ratio_threshold
+            and now_ms - self.last_a_increment_ms >= self.cfg.score_increment_cooldown_ms
+        ):
+            self.state.update(team_a_score=current.team_a_score + 1, match_status="live", ocr_debug=debug_payload)
+            self.last_a_increment_ms = now_ms
+            changed = True
 
-        if self.game_end_candidate_ts and reset_like:
-            if now - self.game_end_candidate_ts >= self.cfg.game_end_hold_seconds:
-                self._finalize_game_once(current, debug_payload)
-                self.game_end_candidate_ts = None
+        current = self.state.snapshot()
+        if (
+            b_white >= self.cfg.white_pixel_min_count
+            and b_change >= self.cfg.pixel_change_ratio_threshold
+            and now_ms - self.last_b_increment_ms >= self.cfg.score_increment_cooldown_ms
+        ):
+            self.state.update(team_b_score=current.team_b_score + 1, match_status="live", ocr_debug=debug_payload)
+            self.last_b_increment_ms = now_ms
+            changed = True
 
-        if current.team_a_games >= current.target_games_to_win or current.team_b_games >= current.target_games_to_win:
+        if not changed:
+            self.state.update(ocr_debug=debug_payload)
+
+    def _finalize_game(self, current: MatchState, debug_payload: dict) -> None:
+        if current.team_a_score == current.team_b_score:
+            self.state.update(team_a_score=0, team_b_score=0, game_timer="5:00", match_status="game_final", ocr_debug=debug_payload)
+            return
+
+        updates = {
+            "team_a_score": 0,
+            "team_b_score": 0,
+            "game_timer": "5:00",
+            "match_status": "game_final",
+            "current_game_number": current.current_game_number + 1,
+            "ocr_debug": debug_payload,
+        }
+        if current.team_a_score > current.team_b_score:
+            updates["team_a_games"] = current.team_a_games + 1
+        else:
+            updates["team_b_games"] = current.team_b_games + 1
+
+        new_state = self.state.update(**updates)
+        if new_state.team_a_games >= new_state.target_games_to_win or new_state.team_b_games >= new_state.target_games_to_win:
             self.state.update(match_status="series_final", ocr_debug=debug_payload)
 
-    def _finalize_game_once(self, current, debug_payload: dict) -> None:
-        if current.current_game_number == self.last_increment_game_number + 1:
-            return
-
-        if current.team_a_score == current.team_b_score:
-            self.state.update(match_status="game_final", ocr_debug=debug_payload)
-            return
-
-        winner = "a" if current.team_a_score > current.team_b_score else "b"
-        if winner == "a":
-            self.state.update(
-                team_a_games=current.team_a_games + 1,
-                team_a_score=0,
-                team_b_score=0,
-                game_timer="5:00",
-                match_status="game_final",
-                current_game_number=current.current_game_number + 1,
-                ocr_debug=debug_payload,
-            )
-        else:
-            self.state.update(
-                team_b_games=current.team_b_games + 1,
-                team_a_score=0,
-                team_b_score=0,
-                game_timer="5:00",
-                match_status="game_final",
-                current_game_number=current.current_game_number + 1,
-                ocr_debug=debug_payload,
-            )
-        self.last_increment_game_number = current.current_game_number
-
-    def _stable_value(self, values: deque):
-        if len(values) < self.cfg.stabilize_frames:
-            return None
-        most_common, count = Counter(values).most_common(1)[0]
-        if count < self.cfg.stabilize_frames:
-            return None
-        return most_common
+    @staticmethod
+    def _change_ratio(previous: np.ndarray | None, current: np.ndarray) -> float:
+        if previous is None or previous.shape != current.shape:
+            return 0.0
+        diff = np.bitwise_xor(previous, current)
+        changed = float(np.count_nonzero(diff))
+        total = float(diff.size) if diff.size else 1.0
+        return changed / total
