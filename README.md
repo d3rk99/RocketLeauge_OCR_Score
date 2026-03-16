@@ -64,6 +64,8 @@ This script:
 - detects Python 3.11+ (`py -3.11`, `py -3`, `py`, then `python`),
 - attempts automatic Python 3.11 install with `winget` if Python is missing,
 - creates `venv`, upgrades pip, and installs dependencies,
+- if `nvidia-smi` is detected, attempts CUDA-enabled PyTorch install for EasyOCR GPU usage,
+- prints Torch CUDA diagnostics (`torch.version.cuda`, `torch.cuda.is_available`, device count),
 - checks if `tesseract` is on PATH and prints guidance.
 
 `install.bat` and `run.bat` resolve paths relative to the repository root, so they work even when launched from outside the repo directory. `run.bat` launches with `python -m app.main` from the repo root to avoid import-path issues. Both scripts also pause on success and failure so the window stays open for confirmation/troubleshooting.
@@ -123,6 +125,7 @@ scripts\run.bat --debug
 Debug mode saves preprocessed score crops into `debug_frames/` to help diagnose OCR failures.
 
 When using EasyOCR, GPU usage is auto-detected by default. Set `OCR_USE_GPU=true` to force GPU (with CUDA), or `OCR_USE_GPU=false` to force CPU.
+If logs still show CPU fallback, confirm `nvidia-smi` works and `torch.cuda.is_available = True` during `scripts\install.bat` output.
 
 ### GUI control panel
 

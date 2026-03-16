@@ -6,6 +6,7 @@ from pathlib import Path
 import logging
 import re
 import time
+import warnings
 
 import cv2
 import numpy as np
@@ -48,10 +49,20 @@ def resolve_easyocr_gpu(use_gpu: bool | None) -> bool:
         import torch
 
         has_cuda = bool(torch.cuda.is_available())
+        LOGGER.info(
+            "EasyOCR torch diagnostics: version=%s cuda_version=%s cuda_available=%s device_count=%s",
+            getattr(torch, "__version__", "unknown"),
+            getattr(getattr(torch, "version", None), "cuda", None),
+            has_cuda,
+            torch.cuda.device_count() if has_cuda else 0,
+        )
         if has_cuda:
             LOGGER.info("EasyOCR auto GPU detection: CUDA available, enabling GPU.")
             return True
-        LOGGER.info("EasyOCR auto GPU detection: CUDA not available, using CPU.")
+        LOGGER.warning(
+            "EasyOCR auto GPU detection: CUDA not available, using CPU. "
+            "If you have an NVIDIA GPU, reinstall with scripts\install.bat to attempt CUDA PyTorch wheels."
+        )
         return False
     except Exception as exc:
         LOGGER.warning("EasyOCR auto GPU detection failed (%s); using CPU.", exc)
@@ -63,6 +74,12 @@ class EasyOCREngine(OCREngine):
         import easyocr
 
         gpu = resolve_easyocr_gpu(use_gpu)
+        if not gpu:
+            warnings.filterwarnings(
+                "ignore",
+                message=".*pin_memory.*no accelerator is found.*",
+                category=UserWarning,
+            )
         self.reader = easyocr.Reader(["en"], gpu=gpu)
 
     def read_score(self, image: np.ndarray) -> OCRResult:

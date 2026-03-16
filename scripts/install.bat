@@ -40,13 +40,10 @@ echo [INFO] Installing requirements...
 pip install -r "%ROOT_DIR%\requirements.txt"
 if errorlevel 1 goto :error
 
+call :install_cuda_torch_if_possible
 
-python -c "import torch; print('[INFO] torch.cuda.is_available =', torch.cuda.is_available())" >nul 2>nul
-if errorlevel 1 (
-  echo [INFO] Torch not importable yet for CUDA check (this can happen with minimal installs).
-) else (
-  python -c "import torch; print('[INFO] torch.cuda.is_available =', torch.cuda.is_available())"
-)
+call :print_torch_diagnostics
+
 where tesseract >nul 2>nul
 if %errorlevel% neq 0 (
   echo [INFO] Tesseract not found on PATH. If you want to use Tesseract OCR, install it and set TESSERACT_CMD in .env.
@@ -58,6 +55,35 @@ echo.
 echo [SUCCESS] Install complete.
 echo [INFO] Press any key to close this window.
 pause >nul
+exit /b 0
+
+:install_cuda_torch_if_possible
+where nvidia-smi >nul 2>nul
+if errorlevel 1 (
+  echo [INFO] NVIDIA GPU tooling not detected ^(nvidia-smi not found^). Keeping default Torch package.
+  exit /b 0
+)
+
+echo [INFO] NVIDIA GPU detected. Attempting CUDA-enabled PyTorch install...
+echo [INFO] Installing torch/torchvision/torchaudio from cu121 index...
+pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+if errorlevel 1 (
+  echo [WARN] CUDA-enabled PyTorch install failed. Falling back to current Torch package.
+  echo [WARN] You can retry manually after closing this window:
+  echo        pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+  exit /b 0
+)
+
+echo [INFO] CUDA-enabled PyTorch install completed.
+exit /b 0
+
+:print_torch_diagnostics
+python -c "import torch; print('[INFO] torch.__version__ =', torch.__version__); print('[INFO] torch.version.cuda =', torch.version.cuda); print('[INFO] torch.cuda.is_available =', torch.cuda.is_available()); print('[INFO] torch.cuda.device_count =', torch.cuda.device_count())" >nul 2>nul
+if errorlevel 1 (
+  echo [INFO] Torch not importable yet for CUDA check.
+) else (
+  python -c "import torch; print('[INFO] torch.__version__ =', torch.__version__); print('[INFO] torch.version.cuda =', torch.version.cuda); print('[INFO] torch.cuda.is_available =', torch.cuda.is_available()); print('[INFO] torch.cuda.device_count =', torch.cuda.device_count())"
+)
 exit /b 0
 
 :detect_python
