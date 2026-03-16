@@ -8,7 +8,7 @@ import time
 import cv2
 
 from app.capture import ScreenCapturer
-from app.config import DEBUG_DIR, LOG_DIR, load_configs
+from app.config import DEBUG_DIR, LOG_DIR, load_configs, parse_ocr_gpu_preference
 from app.detector import ScoreDetector, ScoreReading
 from app.gui import ControlGUI
 from app.logging_utils import setup_logging
@@ -86,7 +86,11 @@ def run() -> None:
 
     state = StateManager(app_cfg.overlay_state_path, match_cfg)
     capturer = ScreenCapturer(regions_cfg)
-    engine = build_engine(app_cfg.engine, tesseract_cmd=app_cfg.tesseract_cmd)
+    engine = build_engine(
+        app_cfg.engine,
+        tesseract_cmd=app_cfg.tesseract_cmd,
+        easyocr_use_gpu=parse_ocr_gpu_preference(app_cfg.ocr_use_gpu),
+    )
     detector = ScoreDetector(app_cfg, state)
 
     if app_cfg.hotkeys_enabled:

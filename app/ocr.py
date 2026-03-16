@@ -3,11 +3,15 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+import logging
 import re
 import time
 
 import cv2
 import numpy as np
+
+
+LOGGER = logging.getLogger("ocr")
 
 
 @dataclass
@@ -23,11 +27,43 @@ class OCREngine(ABC):
         raise NotImplementedError
 
 
+def resolve_easyocr_gpu(use_gpu: bool | None) -> bool:
+    if use_gpu is not None:
+        if use_gpu:
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    LOGGER.info("EasyOCR GPU explicitly enabled (CUDA available).")
+                    return True
+                LOGGER.warning("EasyOCR GPU requested but CUDA is not available; falling back to CPU.")
+                return False
+            except Exception as exc:
+                LOGGER.warning("EasyOCR GPU requested but torch CUDA check failed (%s); falling back to CPU.", exc)
+                return False
+        LOGGER.info("EasyOCR GPU explicitly disabled; using CPU.")
+        return False
+
+    try:
+        import torch
+
+        has_cuda = bool(torch.cuda.is_available())
+        if has_cuda:
+            LOGGER.info("EasyOCR auto GPU detection: CUDA available, enabling GPU.")
+            return True
+        LOGGER.info("EasyOCR auto GPU detection: CUDA not available, using CPU.")
+        return False
+    except Exception as exc:
+        LOGGER.warning("EasyOCR auto GPU detection failed (%s); using CPU.", exc)
+        return False
+
+
 class EasyOCREngine(OCREngine):
-    def __init__(self) -> None:
+    def __init__(self, use_gpu: bool | None = None) -> None:
         import easyocr
 
-        self.reader = easyocr.Reader(["en"], gpu=False)
+        gpu = resolve_easyocr_gpu(use_gpu)
+        self.reader = easyocr.Reader(["en"], gpu=gpu)
 
     def read_score(self, image: np.ndarray) -> OCRResult:
         out = self.reader.readtext(image, detail=1, paragraph=False, allowlist="0123456789")
@@ -92,10 +128,10 @@ def preprocess_for_ocr(image: np.ndarray) -> np.ndarray:
     return morph
 
 
-def build_engine(name: str, tesseract_cmd: str | None = None) -> OCREngine:
+def build_engine(name: str, tesseract_cmd: str | None = None, easyocr_use_gpu: bool | None = None) -> OCREngine:
     normalized = name.lower().strip()
     if normalized == "easyocr":
-        return EasyOCREngine()
+        return EasyOCREngine(use_gpu=easyocr_use_gpu)
     if normalized == "tesseract":
         return TesseractEngine(tesseract_cmd=tesseract_cmd)
     raise ValueError(f"Unsupported OCR engine '{name}'")

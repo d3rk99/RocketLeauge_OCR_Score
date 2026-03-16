@@ -40,6 +40,13 @@ echo [INFO] Installing requirements...
 pip install -r "%ROOT_DIR%\requirements.txt"
 if errorlevel 1 goto :error
 
+
+python -c "import torch; print('[INFO] torch.cuda.is_available =', torch.cuda.is_available())" >nul 2>nul
+if errorlevel 1 (
+  echo [INFO] Torch not importable yet for CUDA check (this can happen with minimal installs).
+) else (
+  python -c "import torch; print('[INFO] torch.cuda.is_available =', torch.cuda.is_available())"
+)
 where tesseract >nul 2>nul
 if %errorlevel% neq 0 (
   echo [INFO] Tesseract not found on PATH. If you want to use Tesseract OCR, install it and set TESSERACT_CMD in .env.

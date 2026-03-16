@@ -8,7 +8,7 @@ from dataclasses import asdict
 from tkinter import ttk, messagebox
 
 from app.capture import ScreenCapturer
-from app.config import CONFIG_DIR, AppConfig, MatchConfig, Region, RegionsConfig, target_games_to_win
+from app.config import CONFIG_DIR, AppConfig, MatchConfig, Region, RegionsConfig, parse_ocr_gpu_preference, target_games_to_win
 from app.detector import ScoreDetector, ScoreReading
 from app.ocr import build_engine, preprocess_for_ocr
 from app.state import StateManager
@@ -98,7 +98,11 @@ class OCRWorker:
 
     def _run(self) -> None:
         capturer = ScreenCapturer(self.regions_cfg)
-        engine = build_engine(self.app_cfg.engine, tesseract_cmd=self.app_cfg.tesseract_cmd)
+        engine = build_engine(
+            self.app_cfg.engine,
+            tesseract_cmd=self.app_cfg.tesseract_cmd,
+            easyocr_use_gpu=parse_ocr_gpu_preference(self.app_cfg.ocr_use_gpu),
+        )
         detector = ScoreDetector(self.app_cfg, self.state)
         delay = 1.0 / max(1, self.app_cfg.fps)
 

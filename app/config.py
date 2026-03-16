@@ -42,6 +42,7 @@ class Region:
 @dataclass
 class AppConfig:
     fps: int
+    ocr_use_gpu: str
     min_ocr_confidence: float
     vote_window: int
     stabilize_frames: int
@@ -90,6 +91,7 @@ def load_configs() -> tuple[AppConfig, RegionsConfig, MatchConfig]:
 
     app_cfg = AppConfig(
         fps=int(settings_data.get("fps", 8)),
+        ocr_use_gpu=str(os.getenv("OCR_USE_GPU", settings_data.get("ocr_use_gpu", "auto"))).lower(),
         min_ocr_confidence=float(settings_data.get("min_ocr_confidence", 0.55)),
         vote_window=int(settings_data.get("vote_window", 7)),
         stabilize_frames=int(settings_data.get("stabilize_frames", 3)),
@@ -123,6 +125,17 @@ def load_configs() -> tuple[AppConfig, RegionsConfig, MatchConfig]:
 
     return app_cfg, regions_cfg, match_cfg
 
+
+
+def parse_ocr_gpu_preference(value: str) -> bool | None:
+    normalized = (value or "auto").strip().lower()
+    if normalized in {"auto", ""}:
+        return None
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"Invalid ocr_use_gpu value '{value}'. Use auto|true|false")
 
 def target_games_to_win(series_type: str) -> int:
     return _series_target(series_type)

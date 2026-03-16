@@ -10,6 +10,7 @@
   "game_end_hold_seconds": 2.0,
   "overlay_state_path": "data/match_state.json",
   "ocr_engine": "easyocr",
+  "ocr_use_gpu": "auto",
   "tesseract_cmd": "",
   "debug_mode": false,
   "show_preview": false,

@@ -100,6 +100,7 @@ Set:
 ### 4) Optional environment overrides (`.env`)
 
 - `OCR_ENGINE=easyocr` or `tesseract`
+- `OCR_USE_GPU=auto|true|false` (EasyOCR only; `auto` enables GPU when CUDA is available)
 - `TESSERACT_CMD` path if Tesseract is not on PATH
 - `DEBUG_MODE`, `SHOW_PREVIEW`, `HOTKEYS_ENABLED`
 
@@ -120,6 +121,8 @@ scripts\run.bat --debug
 ```
 
 Debug mode saves preprocessed score crops into `debug_frames/` to help diagnose OCR failures.
+
+When using EasyOCR, GPU usage is auto-detected by default. Set `OCR_USE_GPU=true` to force GPU (with CUDA), or `OCR_USE_GPU=false` to force CPU.
 
 ### GUI control panel
 
