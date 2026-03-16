@@ -9,7 +9,7 @@ This project captures Rocket League HUD regions and writes `data/match_state.jso
   2. Team B score (right)
   3. Game timer
 - Uses a **luma mask** (high-contrast black/white) for score tracking.
-- Uses **pixel-change events** (not score-digit OCR) to increment score by +1.
+- Uses **pixel-change counts** (not score-digit OCR) to increment score by +1 when enough pixels flip between frames.
 - Detects game end when **both score regions have no white pixels for 50ms**.
 - Awards a game win to higher score, resets score to `0-0`, and waits for white pixels to return before tracking next game.
 - Still OCRs the timer region (EasyOCR/Tesseract).
@@ -66,7 +66,7 @@ Default run mode is GUI.
 - OCR device chooser (Auto/GPU/CPU).
 - FPS control.
 - **Luma threshold control** (slider + spinbox).
-- **Live Team A luma preview** to tune threshold.
+- **Live Team A/Team B/Timer previews** to tune regions and threshold.
 - Start/Stop OCR worker and manual score/game controls.
 
 ## Config
@@ -83,7 +83,7 @@ copy .env.example .env
 
 - `luma_threshold`
 - `white_pixel_min_count`
-- `pixel_change_ratio_threshold`
+- `pixel_change_count_threshold`
 - `score_increment_cooldown_ms`
 - `game_end_no_white_ms`
 

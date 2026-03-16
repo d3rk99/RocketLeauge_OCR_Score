@@ -36,8 +36,8 @@ class ScoreDetector:
 
         a_white = int(np.count_nonzero(reading.a_mask))
         b_white = int(np.count_nonzero(reading.b_mask))
-        a_change = self._change_ratio(self.last_a_mask, reading.a_mask)
-        b_change = self._change_ratio(self.last_b_mask, reading.b_mask)
+        a_changed_pixels = self._changed_pixels(self.last_a_mask, reading.a_mask)
+        b_changed_pixels = self._changed_pixels(self.last_b_mask, reading.b_mask)
 
         if reading.timer_value is not None and reading.timer_conf >= self.cfg.min_ocr_confidence:
             now = time.time()
@@ -47,12 +47,13 @@ class ScoreDetector:
                 current = self.state.snapshot()
 
         debug_payload = {
-            "tracking_mode": "pixel_change",
+            "tracking_mode": "pixel_change_count",
             "luma_threshold": self.cfg.luma_threshold,
+            "pixel_change_count_threshold": self.cfg.pixel_change_count_threshold,
             "a_white_pixels": a_white,
             "b_white_pixels": b_white,
-            "a_change_ratio": round(a_change, 4),
-            "b_change_ratio": round(b_change, 4),
+            "a_changed_pixels": a_changed_pixels,
+            "b_changed_pixels": b_changed_pixels,
             "timer_raw": reading.timer_raw,
             "timer_conf": reading.timer_conf,
             "game_ended_waiting_for_white": self.game_ended_waiting_for_white,
@@ -69,7 +70,7 @@ class ScoreDetector:
                 self.state.update(ocr_debug=debug_payload)
             return
 
-        self._track_score_increment(current, now_ms, a_change, b_change, a_white, b_white, debug_payload)
+        self._track_score_increment(current, now_ms, a_changed_pixels, b_changed_pixels, a_white, b_white, debug_payload)
         current = self.state.snapshot()
 
         both_dark = a_white < self.cfg.white_pixel_min_count and b_white < self.cfg.white_pixel_min_count
@@ -91,8 +92,8 @@ class ScoreDetector:
         self,
         current: MatchState,
         now_ms: int,
-        a_change: float,
-        b_change: float,
+        a_changed_pixels: int,
+        b_changed_pixels: int,
         a_white: int,
         b_white: int,
         debug_payload: dict,
@@ -100,7 +101,7 @@ class ScoreDetector:
         changed = False
         if (
             a_white >= self.cfg.white_pixel_min_count
-            and a_change >= self.cfg.pixel_change_ratio_threshold
+            and a_changed_pixels >= self.cfg.pixel_change_count_threshold
             and now_ms - self.last_a_increment_ms >= self.cfg.score_increment_cooldown_ms
         ):
             self.state.update(team_a_score=current.team_a_score + 1, match_status="live", ocr_debug=debug_payload)
@@ -110,7 +111,7 @@ class ScoreDetector:
         current = self.state.snapshot()
         if (
             b_white >= self.cfg.white_pixel_min_count
-            and b_change >= self.cfg.pixel_change_ratio_threshold
+            and b_changed_pixels >= self.cfg.pixel_change_count_threshold
             and now_ms - self.last_b_increment_ms >= self.cfg.score_increment_cooldown_ms
         ):
             self.state.update(team_b_score=current.team_b_score + 1, match_status="live", ocr_debug=debug_payload)
@@ -143,10 +144,8 @@ class ScoreDetector:
             self.state.update(match_status="series_final", ocr_debug=debug_payload)
 
     @staticmethod
-    def _change_ratio(previous: np.ndarray | None, current: np.ndarray) -> float:
+    def _changed_pixels(previous: np.ndarray | None, current: np.ndarray) -> int:
         if previous is None or previous.shape != current.shape:
-            return 0.0
+            return 0
         diff = np.bitwise_xor(previous, current)
-        changed = float(np.count_nonzero(diff))
-        total = float(diff.size) if diff.size else 1.0
-        return changed / total
+        return int(np.count_nonzero(diff))

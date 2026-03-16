@@ -176,7 +176,7 @@ class OCRWorker:
                 )
 
                 if self.preview_callback:
-                    self.preview_callback(a_mask)
+                    self.preview_callback(a_mask, b_mask, timer)
                 consecutive_failures = 0
             except Exception as exc:
                 consecutive_failures += 1
@@ -206,7 +206,7 @@ class ControlGUI:
         self.regions_cfg = regions_cfg
         self.state = StateManager(app_cfg.overlay_state_path, match_cfg)
         self.preview_lock = threading.Lock()
-        self.latest_preview: ImageTk.PhotoImage | None = None
+        self.latest_previews: dict[str, ImageTk.PhotoImage] = {}
         self.last_worker_error = "No worker errors"
 
         self.worker = OCRWorker(
@@ -257,15 +257,19 @@ class ControlGUI:
 
         ttk.Label(perf, text="Luma Threshold").grid(row=0, column=4, sticky="w", padx=4)
         self.luma_var = tk.IntVar(value=self.app_cfg.luma_threshold)
-        ttk.Scale(perf, from_=150, to=255, variable=self.luma_var, orient="horizontal", length=180).grid(row=0, column=5, padx=4)
+        ttk.Scale(perf, from_=150, to=255, variable=self.luma_var, orient="horizontal", length=120).grid(row=0, column=5, padx=4)
         ttk.Spinbox(perf, from_=150, to=255, textvariable=self.luma_var, width=5).grid(row=0, column=6, padx=4)
 
-        ttk.Button(perf, text="Apply", command=self._apply_device_fps_luma).grid(row=0, column=7, padx=6)
-        ttk.Button(perf, text="Save as Default", command=self._save_runtime_defaults).grid(row=0, column=8, padx=6)
-        ttk.Label(perf, textvariable=self.hw_status_var).grid(row=1, column=0, columnspan=9, sticky="w", padx=4, pady=4)
+        ttk.Label(perf, text="Pixel Change Threshold").grid(row=0, column=7, sticky="w", padx=4)
+        self.change_threshold_var = tk.IntVar(value=self.app_cfg.pixel_change_count_threshold)
+        ttk.Spinbox(perf, from_=1, to=50000, textvariable=self.change_threshold_var, width=8).grid(row=0, column=8, padx=4)
+
+        ttk.Button(perf, text="Apply", command=self._apply_device_fps_luma).grid(row=0, column=9, padx=6)
+        ttk.Button(perf, text="Save as Default", command=self._save_runtime_defaults).grid(row=0, column=10, padx=6)
+        ttk.Label(perf, textvariable=self.hw_status_var).grid(row=1, column=0, columnspan=11, sticky="w", padx=4, pady=4)
 
         self.error_var = tk.StringVar(value="Worker: healthy")
-        ttk.Label(perf, textvariable=self.error_var, foreground="#f87171").grid(row=2, column=0, columnspan=9, sticky="w", padx=4, pady=2)
+        ttk.Label(perf, textvariable=self.error_var, foreground="#f87171").grid(row=2, column=0, columnspan=11, sticky="w", padx=4, pady=2)
 
         ctl = ttk.LabelFrame(frame, text="OCR Regions (absolute screen regions)")
         ctl.pack(fill="x", pady=6)
@@ -292,10 +296,15 @@ class ControlGUI:
         self.live_text.pack(fill="both", expand=True, padx=4, pady=4)
         self.live_text.configure(state="disabled")
 
-        preview_box = ttk.LabelFrame(content, text="Team A Luma Preview")
+        preview_box = ttk.LabelFrame(content, text="Region Luma/Preprocess Preview")
         preview_box.pack(side="right", fill="both", expand=False)
-        self.preview_label = ttk.Label(preview_box, text="No preview yet")
-        self.preview_label.pack(padx=8, pady=8)
+
+        self.preview_a_label = ttk.Label(preview_box, text="Team A: no preview")
+        self.preview_a_label.pack(padx=8, pady=4)
+        self.preview_b_label = ttk.Label(preview_box, text="Team B: no preview")
+        self.preview_b_label.pack(padx=8, pady=4)
+        self.preview_timer_label = ttk.Label(preview_box, text="Timer: no preview")
+        self.preview_timer_label.pack(padx=8, pady=4)
 
         self._update_region_label()
 
@@ -303,20 +312,34 @@ class ControlGUI:
         self.last_worker_error = message
         LOGGER.error(message)
 
-    def _update_preview_frame(self, mask) -> None:
-        resized = cv2.resize(mask, (260, 90), interpolation=cv2.INTER_NEAREST)
-        rgb = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
-        img = Image.fromarray(rgb)
-        photo = ImageTk.PhotoImage(image=img)
+    def _build_preview_photo(self, image, size=(260, 70)) -> ImageTk.PhotoImage:
+        resized = cv2.resize(image, size, interpolation=cv2.INTER_NEAREST)
+        if len(resized.shape) == 2:
+            rgb = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
+        else:
+            rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+        return ImageTk.PhotoImage(image=Image.fromarray(rgb))
+
+    def _update_preview_frame(self, a_mask, b_mask, timer_image) -> None:
         with self.preview_lock:
-            self.latest_preview = photo
+            self.latest_previews["a"] = self._build_preview_photo(a_mask)
+            self.latest_previews["b"] = self._build_preview_photo(b_mask)
+            self.latest_previews["timer"] = self._build_preview_photo(timer_image)
 
     def _update_preview_image(self) -> None:
         with self.preview_lock:
-            photo = self.latest_preview
-        if photo is not None:
-            self.preview_label.configure(image=photo, text="")
-            self.preview_label.image = photo
+            a_photo = self.latest_previews.get("a")
+            b_photo = self.latest_previews.get("b")
+            t_photo = self.latest_previews.get("timer")
+        if a_photo is not None:
+            self.preview_a_label.configure(image=a_photo, text="")
+            self.preview_a_label.image = a_photo
+        if b_photo is not None:
+            self.preview_b_label.configure(image=b_photo, text="")
+            self.preview_b_label.image = b_photo
+        if t_photo is not None:
+            self.preview_timer_label.configure(image=t_photo, text="")
+            self.preview_timer_label.image = t_photo
         self.root.after(120, self._update_preview_image)
 
     def _detect_hardware_status(self) -> str:
@@ -350,6 +373,7 @@ class ControlGUI:
         desired_gpu = self._from_device_ui_value(self.device_var.get())
         desired_fps = max(1, min(30, int(self.fps_var.get())))
         desired_luma = max(150, min(255, int(self.luma_var.get())))
+        desired_change_threshold = max(1, int(self.change_threshold_var.get()))
 
         was_running = self.worker.is_running()
         if was_running:
@@ -358,11 +382,12 @@ class ControlGUI:
         self.app_cfg.ocr_use_gpu = desired_gpu
         self.app_cfg.fps = desired_fps
         self.app_cfg.luma_threshold = desired_luma
+        self.app_cfg.pixel_change_count_threshold = desired_change_threshold
         self.hw_status_var.set(self._detect_hardware_status())
 
         if was_running:
             self.worker.start()
-        messagebox.showinfo("Applied", f"Applied device={self.device_var.get()}, FPS={desired_fps}, luma={desired_luma}")
+        messagebox.showinfo("Applied", f"Applied device={self.device_var.get()}, FPS={desired_fps}, luma={desired_luma}, pixel_change_threshold={desired_change_threshold}")
 
     def _save_runtime_defaults(self) -> None:
         settings_path = CONFIG_DIR / "settings.json"
@@ -376,6 +401,7 @@ class ControlGUI:
         settings["fps"] = int(self.fps_var.get())
         settings["ocr_use_gpu"] = self._from_device_ui_value(self.device_var.get())
         settings["luma_threshold"] = int(self.luma_var.get())
+        settings["pixel_change_count_threshold"] = int(self.change_threshold_var.get())
         settings_path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         messagebox.showinfo("Saved", f"Saved defaults to {settings_path}")
 

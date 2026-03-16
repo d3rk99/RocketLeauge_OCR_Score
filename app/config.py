@@ -50,7 +50,7 @@ class AppConfig:
     game_end_hold_seconds: float
     luma_threshold: int
     white_pixel_min_count: int
-    pixel_change_ratio_threshold: float
+    pixel_change_count_threshold: int
     score_increment_cooldown_ms: int
     game_end_no_white_ms: int
     overlay_state_path: Path
@@ -133,7 +133,7 @@ def load_configs() -> tuple[AppConfig, RegionsConfig, MatchConfig]:
         game_end_hold_seconds=float(settings_data.get("game_end_hold_seconds", 2.0)),
         luma_threshold=int(os.getenv("LUMA_THRESHOLD", settings_data.get("luma_threshold", 215))),
         white_pixel_min_count=int(os.getenv("WHITE_PIXEL_MIN_COUNT", settings_data.get("white_pixel_min_count", 12))),
-        pixel_change_ratio_threshold=float(os.getenv("PIXEL_CHANGE_RATIO_THRESHOLD", settings_data.get("pixel_change_ratio_threshold", 0.18))),
+        pixel_change_count_threshold=int(os.getenv("PIXEL_CHANGE_COUNT_THRESHOLD", settings_data.get("pixel_change_count_threshold", 250))),
         score_increment_cooldown_ms=int(os.getenv("SCORE_INCREMENT_COOLDOWN_MS", settings_data.get("score_increment_cooldown_ms", 650))),
         game_end_no_white_ms=int(os.getenv("GAME_END_NO_WHITE_MS", settings_data.get("game_end_no_white_ms", 50))),
         overlay_state_path=ROOT_DIR / settings_data.get("overlay_state_path", "data/match_state.json"),

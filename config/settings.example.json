@@ -10,7 +10,7 @@
   "game_end_hold_seconds": 2.0,
   "luma_threshold": 215,
   "white_pixel_min_count": 12,
-  "pixel_change_ratio_threshold": 0.18,
+  "pixel_change_count_threshold": 250,
   "score_increment_cooldown_ms": 650,
   "game_end_no_white_ms": 50,
   "overlay_state_path": "data/match_state.json",
