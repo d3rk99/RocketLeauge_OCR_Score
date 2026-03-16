@@ -143,6 +143,9 @@ scripts\run.bat --gui
 - `scripts\run.bat` with no arguments starts in GUI mode by default.
 - Use **Select Team A Region**, **Select Team B Region**, and **Select Timer Region** to calibrate the three OCR targets.
 - Use **Toggle Region Borders** to show/hide visible boxes for all three OCR regions.
+- Use the new **OCR Device + Performance** panel to pick **Auto / GPU / CPU**, view hardware detection status, and change **FPS** (poll rate).
+- Use **Apply Device/FPS** to apply changes immediately (OCR auto-restarts if running).
+- Use **Save as Default** to persist device/FPS into `config/settings.json`.
 - Use **Start OCR / Stop OCR** and manual score/game controls directly in the GUI.
 - Use **Save Regions** to write calibration to `config/regions.json`.
 

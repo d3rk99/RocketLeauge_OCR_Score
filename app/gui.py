@@ -102,6 +102,9 @@ class OCRWorker:
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=2)
 
+    def is_running(self) -> bool:
+        return bool(self.thread and self.thread.is_alive())
+
     def _run(self) -> None:
         capturer = ScreenCapturer(self.regions_cfg)
         engine = build_engine(
@@ -143,7 +146,7 @@ class ControlGUI:
     def __init__(self, app_cfg: AppConfig, regions_cfg: RegionsConfig, match_cfg: MatchConfig) -> None:
         self.root = tk.Tk()
         self.root.title("Rocket League OCR Control Panel")
-        self.root.geometry("820x560")
+        self.root.geometry("860x600")
 
         self.app_cfg = app_cfg
         self.regions_cfg = regions_cfg
@@ -175,6 +178,21 @@ class ControlGUI:
         ttk.Combobox(top, textvariable=self.series_var, values=["bo3", "bo5", "bo7"], state="readonly", width=8).grid(row=0, column=5, padx=4)
         ttk.Button(top, text="Apply", command=self._apply_match).grid(row=0, column=6, padx=6)
 
+        perf = ttk.LabelFrame(frame, text="OCR Device + Performance")
+        perf.pack(fill="x", pady=6)
+
+        self.device_var = tk.StringVar(value=self._to_device_ui_value(self.app_cfg.ocr_use_gpu))
+        self.fps_var = tk.IntVar(value=max(1, int(self.app_cfg.fps)))
+        self.hw_status_var = tk.StringVar(value=self._detect_hardware_status())
+
+        ttk.Label(perf, text="OCR Device").grid(row=0, column=0, sticky="w", padx=4, pady=4)
+        ttk.Combobox(perf, textvariable=self.device_var, values=["Auto", "GPU", "CPU"], state="readonly", width=10).grid(row=0, column=1, padx=4)
+        ttk.Label(perf, text="FPS").grid(row=0, column=2, sticky="w", padx=4)
+        ttk.Spinbox(perf, from_=1, to=30, textvariable=self.fps_var, width=6).grid(row=0, column=3, padx=4)
+        ttk.Button(perf, text="Apply Device/FPS", command=self._apply_device_and_fps).grid(row=0, column=4, padx=6)
+        ttk.Button(perf, text="Save as Default", command=self._save_runtime_defaults).grid(row=0, column=5, padx=6)
+        ttk.Label(perf, textvariable=self.hw_status_var).grid(row=1, column=0, columnspan=6, sticky="w", padx=4, pady=4)
+
         ctl = ttk.LabelFrame(frame, text="OCR Regions (absolute screen regions)")
         ctl.pack(fill="x", pady=6)
 
@@ -204,6 +222,64 @@ class ControlGUI:
         self.live_text.configure(state="disabled")
 
         self._update_region_label()
+
+    def _detect_hardware_status(self) -> str:
+        try:
+            import torch
+
+            return (
+                f"Hardware detect: torch={getattr(torch, '__version__', 'unknown')} | "
+                f"cuda_available={torch.cuda.is_available()} | "
+                f"cuda_devices={torch.cuda.device_count() if torch.cuda.is_available() else 0}"
+            )
+        except Exception:
+            return "Hardware detect: torch not available yet. Install dependencies first."
+
+    def _to_device_ui_value(self, cfg_val: str) -> str:
+        normalized = (cfg_val or "auto").strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return "GPU"
+        if normalized in {"false", "0", "no", "off"}:
+            return "CPU"
+        return "Auto"
+
+    def _from_device_ui_value(self, ui_val: str) -> str:
+        if ui_val == "GPU":
+            return "true"
+        if ui_val == "CPU":
+            return "false"
+        return "auto"
+
+    def _apply_device_and_fps(self) -> None:
+        desired_gpu = self._from_device_ui_value(self.device_var.get())
+        desired_fps = max(1, min(30, int(self.fps_var.get())))
+
+        was_running = self.worker.is_running()
+        if was_running:
+            self.worker.stop()
+
+        self.app_cfg.ocr_use_gpu = desired_gpu
+        self.app_cfg.fps = desired_fps
+
+        self.hw_status_var.set(self._detect_hardware_status())
+
+        if was_running:
+            self.worker.start()
+        messagebox.showinfo("Applied", f"Applied OCR device={self.device_var.get()} and FPS={desired_fps}")
+
+    def _save_runtime_defaults(self) -> None:
+        settings_path = CONFIG_DIR / "settings.json"
+        settings: dict = {}
+        if settings_path.exists():
+            try:
+                settings = json.loads(settings_path.read_text(encoding="utf-8"))
+            except Exception:
+                settings = {}
+
+        settings["fps"] = int(self.fps_var.get())
+        settings["ocr_use_gpu"] = self._from_device_ui_value(self.device_var.get())
+        settings_path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+        messagebox.showinfo("Saved", f"Saved defaults to {settings_path}")
 
     def _apply_match(self) -> None:
         series = self.series_var.get()
