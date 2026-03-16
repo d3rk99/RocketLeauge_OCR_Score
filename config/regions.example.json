@@ -1,0 +1,20 @@
+{
+  "scoreboard": {
+    "top": 20,
+    "left": 760,
+    "width": 400,
+    "height": 120
+  },
+  "team_a_score": {
+    "top": 30,
+    "left": 110,
+    "width": 60,
+    "height": 60
+  },
+  "team_b_score": {
+    "top": 30,
+    "left": 230,
+    "width": 60,
+    "height": 60
+  }
+}
