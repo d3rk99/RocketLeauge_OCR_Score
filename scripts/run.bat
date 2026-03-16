@@ -2,14 +2,16 @@
 setlocal
 
 REM Runner for Rocket League OCR tracker
+set "SCRIPT_DIR=%~dp0"
+for %%I in ("%SCRIPT_DIR%..") do set "ROOT_DIR=%%~fI"
 
-if not exist venv\Scripts\activate (
+if not exist "%ROOT_DIR%\venv\Scripts\activate" (
   echo [ERROR] venv not found. Run scripts\install.bat first.
   pause
   exit /b 1
 )
 
-call venv\Scripts\activate
+call "%ROOT_DIR%\venv\Scripts\activate"
 if errorlevel 1 goto :error
 
 set ARGS=%*
@@ -19,7 +21,7 @@ if "%ARGS%"=="" (
   echo [INFO] Starting app with args: %ARGS%
 )
 
-python app\main.py %ARGS%
+python "%ROOT_DIR%\app\main.py" %ARGS%
 if errorlevel 1 goto :error
 
 exit /b 0

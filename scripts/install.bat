@@ -2,6 +2,8 @@
 setlocal EnableExtensions EnableDelayedExpansion
 
 REM Windows installer for Rocket League OCR tracker
+set "SCRIPT_DIR=%~dp0"
+for %%I in ("%SCRIPT_DIR%..") do set "ROOT_DIR=%%~fI"
 
 set "PYTHON_CMD="
 
@@ -19,15 +21,15 @@ if "%PYTHON_CMD%"=="" (
 
 echo [INFO] Using Python command: %PYTHON_CMD%
 
-if not exist venv (
+if not exist "%ROOT_DIR%\venv" (
   echo [INFO] Creating virtual environment...
-  %PYTHON_CMD% -m venv venv
+  %PYTHON_CMD% -m venv "%ROOT_DIR%\venv"
   if errorlevel 1 goto :error
 ) else (
   echo [INFO] Using existing virtual environment.
 )
 
-call venv\Scripts\activate
+call "%ROOT_DIR%\venv\Scripts\activate"
 if errorlevel 1 goto :error
 
 echo [INFO] Upgrading pip...
@@ -35,7 +37,7 @@ python -m pip install --upgrade pip
 if errorlevel 1 goto :error
 
 echo [INFO] Installing requirements...
-pip install -r requirements.txt
+pip install -r "%ROOT_DIR%\requirements.txt"
 if errorlevel 1 goto :error
 
 where tesseract >nul 2>nul
