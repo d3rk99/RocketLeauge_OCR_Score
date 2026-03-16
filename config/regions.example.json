@@ -1,0 +1,20 @@
+{
+  "team_a_score": {
+    "top": 42,
+    "left": 782,
+    "width": 64,
+    "height": 76
+  },
+  "team_b_score": {
+    "top": 42,
+    "left": 1072,
+    "width": 64,
+    "height": 76
+  },
+  "game_timer": {
+    "top": 44,
+    "left": 896,
+    "width": 140,
+    "height": 62
+  }
+}
