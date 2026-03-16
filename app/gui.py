@@ -206,7 +206,7 @@ class ControlGUI:
         self.regions_cfg = regions_cfg
         self.state = StateManager(app_cfg.overlay_state_path, match_cfg)
         self.preview_lock = threading.Lock()
-        self.latest_previews: dict[str, ImageTk.PhotoImage] = {}
+        self.latest_preview_arrays: dict[str, object] = {}
         self.last_worker_error = "No worker errors"
 
         self.worker = OCRWorker(
@@ -223,6 +223,7 @@ class ControlGUI:
         self._update_preview_image()
         self._refresh_state()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.root.report_callback_exception = self._handle_tk_exception
 
     def _build_ui(self) -> None:
         frame = ttk.Frame(self.root, padding=12)
@@ -321,26 +322,35 @@ class ControlGUI:
         return ImageTk.PhotoImage(image=Image.fromarray(rgb))
 
     def _update_preview_frame(self, a_mask, b_mask, timer_image) -> None:
+        # Worker thread only stores ndarray snapshots.
         with self.preview_lock:
-            self.latest_previews["a"] = self._build_preview_photo(a_mask)
-            self.latest_previews["b"] = self._build_preview_photo(b_mask)
-            self.latest_previews["timer"] = self._build_preview_photo(timer_image)
+            self.latest_preview_arrays["a"] = a_mask.copy()
+            self.latest_preview_arrays["b"] = b_mask.copy()
+            self.latest_preview_arrays["timer"] = timer_image.copy()
 
     def _update_preview_image(self) -> None:
+        # Tk image objects must be created on the Tk main thread.
         with self.preview_lock:
-            a_photo = self.latest_previews.get("a")
-            b_photo = self.latest_previews.get("b")
-            t_photo = self.latest_previews.get("timer")
-        if a_photo is not None:
+            a_arr = self.latest_preview_arrays.get("a")
+            b_arr = self.latest_preview_arrays.get("b")
+            t_arr = self.latest_preview_arrays.get("timer")
+        if a_arr is not None:
+            a_photo = self._build_preview_photo(a_arr)
             self.preview_a_label.configure(image=a_photo, text="")
             self.preview_a_label.image = a_photo
-        if b_photo is not None:
+        if b_arr is not None:
+            b_photo = self._build_preview_photo(b_arr)
             self.preview_b_label.configure(image=b_photo, text="")
             self.preview_b_label.image = b_photo
-        if t_photo is not None:
+        if t_arr is not None:
+            t_photo = self._build_preview_photo(t_arr)
             self.preview_timer_label.configure(image=t_photo, text="")
             self.preview_timer_label.image = t_photo
         self.root.after(120, self._update_preview_image)
+
+    def _handle_tk_exception(self, exc_type, exc_value, exc_traceback) -> None:
+        LOGGER.exception("Tkinter callback exception", exc_info=(exc_type, exc_value, exc_traceback))
+        self.last_worker_error = f"GUI error: {exc_value}"
 
     def _detect_hardware_status(self) -> str:
         try:

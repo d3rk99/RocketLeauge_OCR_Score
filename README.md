@@ -68,6 +68,7 @@ Default run mode is GUI.
 - **Luma threshold control** (slider + spinbox).
 - **Live Team A/Team B/Timer previews** to tune regions and threshold.
 - Start/Stop OCR worker and manual score/game controls.
+- GUI preview rendering is now main-thread-safe to avoid Tk freezes/"Not Responding" when OCR is running.
 
 ## Config
 
