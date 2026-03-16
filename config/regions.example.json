@@ -1,26 +1,20 @@
 {
-  "scoreboard": {
-    "top": 20,
-    "left": 760,
-    "width": 400,
-    "height": 120
-  },
   "team_a_score": {
-    "top": 22,
-    "left": 24,
+    "top": 42,
+    "left": 782,
     "width": 64,
     "height": 76
   },
   "team_b_score": {
-    "top": 22,
-    "left": 312,
+    "top": 42,
+    "left": 1072,
     "width": 64,
     "height": 76
   },
   "game_timer": {
-    "top": 24,
-    "left": 136,
-    "width": 128,
-    "height": 60
+    "top": 44,
+    "left": 896,
+    "width": 140,
+    "height": 62
   }
 }

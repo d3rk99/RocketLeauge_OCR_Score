@@ -5,7 +5,7 @@ import threading
 import time
 import tkinter as tk
 from dataclasses import asdict
-from tkinter import ttk, messagebox
+from tkinter import messagebox, ttk
 
 from app.capture import ScreenCapturer
 from app.config import CONFIG_DIR, AppConfig, MatchConfig, Region, RegionsConfig, parse_ocr_gpu_preference, target_games_to_win
@@ -15,9 +15,9 @@ from app.state import StateManager
 
 
 class RegionSelector(tk.Toplevel):
-    def __init__(self, master: tk.Tk):
+    def __init__(self, master: tk.Tk, title: str):
         super().__init__(master)
-        self.title("Select OCR Region")
+        self.title(title)
         self.attributes("-fullscreen", True)
         self.attributes("-alpha", 0.25)
         self.configure(bg="black")
@@ -57,23 +57,29 @@ class RegionSelector(tk.Toplevel):
 class RegionOverlay:
     def __init__(self, master: tk.Tk):
         self.master = master
-        self.window: tk.Toplevel | None = None
+        self.windows: list[tk.Toplevel] = []
 
-    def show(self, region: Region) -> None:
+    def show(self, team_a: Region, team_b: Region, timer: Region) -> None:
         self.hide()
-        self.window = tk.Toplevel(self.master)
-        self.window.overrideredirect(True)
-        self.window.attributes("-topmost", True)
-        self.window.attributes("-alpha", 0.45)
-        self.window.geometry(f"{region.width}x{region.height}+{region.left}+{region.top}")
-        canvas = tk.Canvas(self.window, bg="black", highlightthickness=0)
-        canvas.pack(fill="both", expand=True)
-        canvas.create_rectangle(2, 2, region.width - 2, region.height - 2, outline="#00ff00", width=3)
+        self.windows.append(self._create_box(team_a, "#2dd4ff"))
+        self.windows.append(self._create_box(team_b, "#f973ff"))
+        self.windows.append(self._create_box(timer, "#22c55e"))
+
+    def _create_box(self, region: Region, color: str) -> tk.Toplevel:
+        win = tk.Toplevel(self.master)
+        win.overrideredirect(True)
+        win.attributes("-topmost", True)
+        win.attributes("-alpha", 0.35)
+        win.geometry(f"{region.width}x{region.height}+{region.left}+{region.top}")
+        c = tk.Canvas(win, bg="black", highlightthickness=0)
+        c.pack(fill="both", expand=True)
+        c.create_rectangle(2, 2, region.width - 2, region.height - 2, outline=color, width=3)
+        return win
 
     def hide(self) -> None:
-        if self.window is not None:
-            self.window.destroy()
-            self.window = None
+        for win in self.windows:
+            win.destroy()
+        self.windows = []
 
 
 class OCRWorker:
@@ -137,7 +143,7 @@ class ControlGUI:
     def __init__(self, app_cfg: AppConfig, regions_cfg: RegionsConfig, match_cfg: MatchConfig) -> None:
         self.root = tk.Tk()
         self.root.title("Rocket League OCR Control Panel")
-        self.root.geometry("760x520")
+        self.root.geometry("820x560")
 
         self.app_cfg = app_cfg
         self.regions_cfg = regions_cfg
@@ -169,19 +175,21 @@ class ControlGUI:
         ttk.Combobox(top, textvariable=self.series_var, values=["bo3", "bo5", "bo7"], state="readonly", width=8).grid(row=0, column=5, padx=4)
         ttk.Button(top, text="Apply", command=self._apply_match).grid(row=0, column=6, padx=6)
 
-        ctl = ttk.LabelFrame(frame, text="OCR / Region")
+        ctl = ttk.LabelFrame(frame, text="OCR Regions (absolute screen regions)")
         ctl.pack(fill="x", pady=6)
 
         self.region_label = tk.StringVar()
         ttk.Label(ctl, textvariable=self.region_label).grid(row=0, column=0, columnspan=4, sticky="w", padx=4, pady=4)
-        ttk.Button(ctl, text="Select OCR Region", command=self._select_region).grid(row=1, column=0, padx=4, pady=4)
-        ttk.Button(ctl, text="Save Region", command=self._save_region).grid(row=1, column=1, padx=4, pady=4)
-        ttk.Button(ctl, text="Toggle Region Border", command=self._toggle_overlay).grid(row=1, column=2, padx=4, pady=4)
+        ttk.Button(ctl, text="Select Team A Region", command=lambda: self._select_region("team_a_score")).grid(row=1, column=0, padx=4, pady=4)
+        ttk.Button(ctl, text="Select Team B Region", command=lambda: self._select_region("team_b_score")).grid(row=1, column=1, padx=4, pady=4)
+        ttk.Button(ctl, text="Select Timer Region", command=lambda: self._select_region("game_timer")).grid(row=1, column=2, padx=4, pady=4)
+        ttk.Button(ctl, text="Save Regions", command=self._save_region).grid(row=1, column=3, padx=4, pady=4)
+        ttk.Button(ctl, text="Toggle Region Borders", command=self._toggle_overlay).grid(row=2, column=0, padx=4, pady=4)
 
         self.run_label = tk.StringVar(value="OCR: stopped")
-        ttk.Label(ctl, textvariable=self.run_label).grid(row=2, column=0, sticky="w", padx=4, pady=6)
-        ttk.Button(ctl, text="Start OCR", command=self._start_ocr).grid(row=2, column=1, padx=4)
-        ttk.Button(ctl, text="Stop OCR", command=self._stop_ocr).grid(row=2, column=2, padx=4)
+        ttk.Label(ctl, textvariable=self.run_label).grid(row=2, column=1, sticky="w", padx=4, pady=6)
+        ttk.Button(ctl, text="Start OCR", command=self._start_ocr).grid(row=2, column=2, padx=4)
+        ttk.Button(ctl, text="Stop OCR", command=self._stop_ocr).grid(row=2, column=3, padx=4)
 
         score = ttk.LabelFrame(frame, text="Scoreboard Controls")
         score.pack(fill="x", pady=6)
@@ -206,39 +214,39 @@ class ControlGUI:
             target_games_to_win=target_games_to_win(series),
         )
 
-    def _select_region(self) -> None:
-        selector = RegionSelector(self.root)
+    def _select_region(self, target: str) -> None:
+        titles = {
+            "team_a_score": "Select Team A (Left Score) Region",
+            "team_b_score": "Select Team B (Right Score) Region",
+            "game_timer": "Select Game Timer Region",
+        }
+        selector = RegionSelector(self.root, titles[target])
         self.root.wait_window(selector)
         if not selector.result:
             return
-        left, top, width, height = selector.result
-        self.regions_cfg.scoreboard = Region(top=top, left=left, width=width, height=height)
 
-        # Calibration default: score digits are usually around left/right thirds of scoreboard bar.
-        sw = max(1, width)
-        sh = max(1, height)
-        self.regions_cfg.team_a_score = Region(top=int(sh * 0.18), left=int(sw * 0.06), width=int(sw * 0.16), height=int(sh * 0.64))
-        self.regions_cfg.team_b_score = Region(top=int(sh * 0.18), left=int(sw * 0.78), width=int(sw * 0.16), height=int(sh * 0.64))
-        self.regions_cfg.game_timer = Region(top=int(sh * 0.20), left=int(sw * 0.34), width=int(sw * 0.32), height=int(sh * 0.50))
+        left, top, width, height = selector.result
+        region = Region(top=top, left=left, width=width, height=height)
+        setattr(self.regions_cfg, target, region)
+
         self._update_region_label()
         if self.overlay_visible:
-            self.overlay.show(self.regions_cfg.scoreboard)
+            self.overlay.show(self.regions_cfg.team_a_score, self.regions_cfg.team_b_score, self.regions_cfg.game_timer)
 
     def _save_region(self) -> None:
         payload = {
-            "scoreboard": asdict(self.regions_cfg.scoreboard),
             "team_a_score": asdict(self.regions_cfg.team_a_score),
             "team_b_score": asdict(self.regions_cfg.team_b_score),
             "game_timer": asdict(self.regions_cfg.game_timer),
         }
         path = CONFIG_DIR / "regions.json"
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        messagebox.showinfo("Saved", f"Saved OCR region to {path}")
+        messagebox.showinfo("Saved", f"Saved OCR regions to {path}")
 
     def _toggle_overlay(self) -> None:
         self.overlay_visible = not self.overlay_visible
         if self.overlay_visible:
-            self.overlay.show(self.regions_cfg.scoreboard)
+            self.overlay.show(self.regions_cfg.team_a_score, self.regions_cfg.team_b_score, self.regions_cfg.game_timer)
         else:
             self.overlay.hide()
 
@@ -251,11 +259,13 @@ class ControlGUI:
         self.run_label.set("OCR: stopped")
 
     def _update_region_label(self) -> None:
-        r = self.regions_cfg.scoreboard
-        tr = self.regions_cfg.game_timer
+        a = self.regions_cfg.team_a_score
+        b = self.regions_cfg.team_b_score
+        t = self.regions_cfg.game_timer
         self.region_label.set(
-            f"OCR region: left={r.left}, top={r.top}, width={r.width}, height={r.height} | "
-            f"A=left panel, B=right panel, timer=({tr.left},{tr.top},{tr.width},{tr.height})"
+            f"Team A(left)=({a.left},{a.top},{a.width},{a.height}) | "
+            f"Team B(right)=({b.left},{b.top},{b.width},{b.height}) | "
+            f"Timer=({t.left},{t.top},{t.width},{t.height})"
         )
 
     def _refresh_state(self) -> None:

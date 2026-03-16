@@ -86,12 +86,9 @@ copy .env.example .env
 
 All coordinates are intentionally externalized (no hardcoded monitor resolution assumptions).
 
-- `scoreboard`: absolute screen region captured by `mss`
-- `team_a_score` and `team_b_score`: subregions **relative to the captured scoreboard frame**
-
-- `team_a_score` should be the **left-side** score panel.
-- `team_b_score` should be the **right-side** score panel.
-- `game_timer` should cover the center clock area (e.g., `2:43`).
+- `team_a_score`: **absolute** screen region for Team A (left score)
+- `team_b_score`: **absolute** screen region for Team B (right score)
+- `game_timer`: **absolute** screen region for the center game timer (e.g., `2:43`)
 
 > Calibration is required for your HUD scale, game resolution, and observer layout.
 
@@ -142,10 +139,10 @@ scripts\run.bat --gui
 ```
 
 - `scripts\run.bat` with no arguments starts in GUI mode by default.
-- Use **Select OCR Region** to drag/select the scoreboard capture area on screen.
-- Use **Toggle Region Border** to show/hide a visible border overlay where OCR is looking.
+- Use **Select Team A Region**, **Select Team B Region**, and **Select Timer Region** to calibrate the three OCR targets.
+- Use **Toggle Region Borders** to show/hide visible boxes for all three OCR regions.
 - Use **Start OCR / Stop OCR** and manual score/game controls directly in the GUI.
-- Use **Save Region** to write calibration to `config/regions.json`.
+- Use **Save Regions** to write calibration to `config/regions.json`.
 
 Both Windows batch scripts now pause on failures so the console stays open and you can read error messages before closing.
 

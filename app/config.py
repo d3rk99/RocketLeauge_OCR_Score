@@ -58,7 +58,6 @@ class AppConfig:
 
 @dataclass
 class RegionsConfig:
-    scoreboard: Region
     team_a_score: Region
     team_b_score: Region
     game_timer: Region
@@ -84,6 +83,37 @@ def _series_target(series_type: str) -> int:
     return mapping[series_type]
 
 
+def _region_from_data(data: dict, key: str) -> Region | None:
+    if key not in data:
+        return None
+    return Region.from_dict(data[key])
+
+
+def _migrate_legacy_regions(data: dict) -> RegionsConfig:
+    # Legacy format supported "scoreboard" + subregions relative to scoreboard.
+    if "scoreboard" in data:
+        sb = Region.from_dict(data["scoreboard"])
+
+        def abs_region(rel_key: str) -> Region:
+            rel = Region.from_dict(data[rel_key])
+            return Region(top=sb.top + rel.top, left=sb.left + rel.left, width=rel.width, height=rel.height)
+
+        timer_default = Region(top=sb.top + 24, left=sb.left + 136, width=128, height=60)
+        return RegionsConfig(
+            team_a_score=abs_region("team_a_score"),
+            team_b_score=abs_region("team_b_score"),
+            game_timer=abs_region("game_timer") if "game_timer" in data else timer_default,
+        )
+
+    # New format: all three regions are absolute and independent.
+    team_a = _region_from_data(data, "team_a_score")
+    team_b = _region_from_data(data, "team_b_score")
+    timer = _region_from_data(data, "game_timer")
+    if not (team_a and team_b and timer):
+        raise ValueError("regions config must define team_a_score, team_b_score, and game_timer")
+    return RegionsConfig(team_a_score=team_a, team_b_score=team_b, game_timer=timer)
+
+
 def load_configs() -> tuple[AppConfig, RegionsConfig, MatchConfig]:
     load_dotenv(ROOT_DIR / ".env")
 
@@ -106,12 +136,7 @@ def load_configs() -> tuple[AppConfig, RegionsConfig, MatchConfig]:
         hotkeys_enabled=str(os.getenv("HOTKEYS_ENABLED", settings_data.get("hotkeys_enabled", True))).lower() in ("1", "true", "yes", "on"),
     )
 
-    regions_cfg = RegionsConfig(
-        scoreboard=Region.from_dict(regions_data["scoreboard"]),
-        team_a_score=Region.from_dict(regions_data["team_a_score"]),
-        team_b_score=Region.from_dict(regions_data["team_b_score"]),
-        game_timer=Region.from_dict(regions_data.get("game_timer", {"top": 20, "left": 155, "width": 90, "height": 40})),
-    )
+    regions_cfg = _migrate_legacy_regions(regions_data)
 
     match_cfg = MatchConfig(
         team_a_name=settings_data.get("team_a_name", "Team Alpha"),

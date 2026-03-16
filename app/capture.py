@@ -7,7 +7,7 @@ import cv2
 import mss
 import numpy as np
 
-from app.config import RegionsConfig
+from app.config import Region, RegionsConfig
 
 
 @dataclass
@@ -24,15 +24,38 @@ class ScreenCapturer:
         self.sct = mss.mss()
 
     def grab(self) -> CaptureResult:
-        scoreboard = self.regions.scoreboard.to_dict()
-        raw = np.array(self.sct.grab(scoreboard))
-        frame_bgr = cv2.cvtColor(raw, cv2.COLOR_BGRA2BGR)
+        # Capture each OCR region independently so config is explicitly split into:
+        # 1) Team A score 2) Team B score 3) Game timer
+        a = self._grab_region(self.regions.team_a_score)
+        b = self._grab_region(self.regions.team_b_score)
+        timer = self._grab_region(self.regions.game_timer)
 
-        # Team A is the left score panel; Team B is the right score panel.
-        a = self._crop(frame_bgr, self.regions.team_a_score)
-        b = self._crop(frame_bgr, self.regions.team_b_score)
-        timer = self._crop(frame_bgr, self.regions.game_timer)
-        return CaptureResult(full_frame=frame_bgr, team_a_crop=a, team_b_crop=b, timer_crop=timer)
+        preview = self._grab_union_preview(
+            [self.regions.team_a_score, self.regions.team_b_score, self.regions.game_timer]
+        )
+        return CaptureResult(full_frame=preview, team_a_crop=a, team_b_crop=b, timer_crop=timer)
+
+    def _grab_region(self, region: Region) -> np.ndarray:
+        raw = np.array(self.sct.grab(region.to_dict()))
+        return cv2.cvtColor(raw, cv2.COLOR_BGRA2BGR)
+
+    def _grab_union_preview(self, regions: list[Region]) -> np.ndarray:
+        left = min(r.left for r in regions)
+        top = min(r.top for r in regions)
+        right = max(r.left + r.width for r in regions)
+        bottom = max(r.top + r.height for r in regions)
+
+        union = {"left": left, "top": top, "width": right - left, "height": bottom - top}
+        raw = np.array(self.sct.grab(union))
+        frame = cv2.cvtColor(raw, cv2.COLOR_BGRA2BGR)
+
+        for r, color in zip(regions, [(255, 100, 100), (100, 180, 255), (130, 255, 130)]):
+            x1 = r.left - left
+            y1 = r.top - top
+            x2 = x1 + r.width
+            y2 = y1 + r.height
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        return frame
 
     @staticmethod
     def _crop(frame: np.ndarray, region: Any) -> np.ndarray:
