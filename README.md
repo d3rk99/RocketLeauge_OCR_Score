@@ -97,6 +97,22 @@ python -m http.server 8000
 
 Then use `http://127.0.0.1:8000/overlay/index.html`.
 
+
+## Terminal error reporting (new)
+
+The app now logs explicit terminal errors for common failure scenarios instead of failing silently.
+
+Implemented scenarios:
+- Invalid OCR region dimensions/positions at startup (negative coordinates or non-positive width/height).
+- Empty frame/crop capture (often caused by bad region coordinates or display capture problems).
+- OCR worker startup failures (engine init/capture backend failures).
+- OCR processing loop failures (timer OCR backend errors, detector/runtime exceptions).
+
+Behavior:
+- First failures are logged immediately with stack traces.
+- Repeated failures are throttled to avoid terminal spam, but still continue retrying.
+- GUI also shows latest worker error text in the control panel.
+
 ## Next Steps
 
 1. **Calibrate OCR regions**

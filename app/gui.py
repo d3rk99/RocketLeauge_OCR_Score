@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 import tkinter as tk
@@ -15,6 +16,9 @@ from app.config import CONFIG_DIR, AppConfig, MatchConfig, Region, RegionsConfig
 from app.detector import ScoreDetector, ScoreReading
 from app.ocr import build_engine, preprocess_for_ocr, preprocess_luma_mask
 from app.state import StateManager
+
+
+LOGGER = logging.getLogger("gui")
 
 
 class RegionSelector(tk.Toplevel):
@@ -85,11 +89,19 @@ class RegionOverlay:
 
 
 class OCRWorker:
-    def __init__(self, app_cfg: AppConfig, regions_cfg: RegionsConfig, state: StateManager, preview_callback=None) -> None:
+    def __init__(
+        self,
+        app_cfg: AppConfig,
+        regions_cfg: RegionsConfig,
+        state: StateManager,
+        preview_callback=None,
+        error_callback=None,
+    ) -> None:
         self.app_cfg = app_cfg
         self.regions_cfg = regions_cfg
         self.state = state
         self.preview_callback = preview_callback
+        self.error_callback = error_callback
         self.stop_event = threading.Event()
         self.thread: threading.Thread | None = None
 
@@ -108,35 +120,75 @@ class OCRWorker:
     def is_running(self) -> bool:
         return bool(self.thread and self.thread.is_alive())
 
+    def _notify_error(self, message: str) -> None:
+        if self.error_callback:
+            self.error_callback(message)
+
+    def _validate_regions(self) -> None:
+        for name, region in {
+            "team_a_score": self.regions_cfg.team_a_score,
+            "team_b_score": self.regions_cfg.team_b_score,
+            "game_timer": self.regions_cfg.game_timer,
+        }.items():
+            if region.width <= 0 or region.height <= 0:
+                raise ValueError(f"Invalid {name} size ({region.width}x{region.height})")
+            if region.left < 0 or region.top < 0:
+                raise ValueError(f"Invalid {name} position ({region.left},{region.top})")
+
     def _run(self) -> None:
-        capturer = ScreenCapturer(self.regions_cfg)
-        engine = build_engine(
-            self.app_cfg.engine,
-            tesseract_cmd=self.app_cfg.tesseract_cmd,
-            easyocr_use_gpu=parse_ocr_gpu_preference(self.app_cfg.ocr_use_gpu),
-        )
-        detector = ScoreDetector(self.app_cfg, self.state)
+        try:
+            self._validate_regions()
+            capturer = ScreenCapturer(self.regions_cfg)
+            engine = build_engine(
+                self.app_cfg.engine,
+                tesseract_cmd=self.app_cfg.tesseract_cmd,
+                easyocr_use_gpu=parse_ocr_gpu_preference(self.app_cfg.ocr_use_gpu),
+            )
+            detector = ScoreDetector(self.app_cfg, self.state)
+        except Exception as exc:
+            LOGGER.exception("OCR worker startup failed: %s", exc)
+            self._notify_error(f"OCR worker startup failed: {exc}")
+            return
+
+        consecutive_failures = 0
+        last_failure_log_ts = 0.0
 
         while not self.stop_event.is_set():
             start = time.perf_counter()
-            frame = capturer.grab()
-            a_mask = preprocess_luma_mask(frame.team_a_crop, self.app_cfg.luma_threshold)
-            b_mask = preprocess_luma_mask(frame.team_b_crop, self.app_cfg.luma_threshold)
-            timer = preprocess_for_ocr(frame.timer_crop)
-            t_res = engine.read_timer(timer)
+            try:
+                frame = capturer.grab()
+                if frame.team_a_crop.size == 0 or frame.team_b_crop.size == 0 or frame.timer_crop.size == 0:
+                    raise RuntimeError("One or more capture regions returned empty frames. Recheck OCR regions.")
 
-            detector.process(
-                ScoreReading(
-                    a_mask=a_mask,
-                    b_mask=b_mask,
-                    timer_value=t_res.timer,
-                    timer_conf=t_res.confidence,
-                    timer_raw=t_res.raw_text,
+                a_mask = preprocess_luma_mask(frame.team_a_crop, self.app_cfg.luma_threshold)
+                b_mask = preprocess_luma_mask(frame.team_b_crop, self.app_cfg.luma_threshold)
+                timer = preprocess_for_ocr(frame.timer_crop)
+                t_res = engine.read_timer(timer)
+
+                detector.process(
+                    ScoreReading(
+                        a_mask=a_mask,
+                        b_mask=b_mask,
+                        timer_value=t_res.timer,
+                        timer_conf=t_res.confidence,
+                        timer_raw=t_res.raw_text,
+                    )
                 )
-            )
 
-            if self.preview_callback:
-                self.preview_callback(a_mask)
+                if self.preview_callback:
+                    self.preview_callback(a_mask)
+                consecutive_failures = 0
+            except Exception as exc:
+                consecutive_failures += 1
+                now = time.time()
+                if consecutive_failures <= 3 or (now - last_failure_log_ts) >= 2.0:
+                    LOGGER.exception(
+                        "OCR worker frame processing failed (count=%s). Potential causes: invalid regions, display capture failure, OCR backend issue.",
+                        consecutive_failures,
+                    )
+                    self._notify_error(f"OCR worker processing error: {exc}")
+                    last_failure_log_ts = now
+                time.sleep(0.2)
 
             delay = 1.0 / max(1, self.app_cfg.fps)
             elapsed = time.perf_counter() - start
@@ -155,8 +207,15 @@ class ControlGUI:
         self.state = StateManager(app_cfg.overlay_state_path, match_cfg)
         self.preview_lock = threading.Lock()
         self.latest_preview: ImageTk.PhotoImage | None = None
+        self.last_worker_error = "No worker errors"
 
-        self.worker = OCRWorker(app_cfg, regions_cfg, self.state, preview_callback=self._update_preview_frame)
+        self.worker = OCRWorker(
+            app_cfg,
+            regions_cfg,
+            self.state,
+            preview_callback=self._update_preview_frame,
+            error_callback=self._on_worker_error,
+        )
         self.overlay = RegionOverlay(self.root)
         self.overlay_visible = False
 
@@ -205,6 +264,9 @@ class ControlGUI:
         ttk.Button(perf, text="Save as Default", command=self._save_runtime_defaults).grid(row=0, column=8, padx=6)
         ttk.Label(perf, textvariable=self.hw_status_var).grid(row=1, column=0, columnspan=9, sticky="w", padx=4, pady=4)
 
+        self.error_var = tk.StringVar(value="Worker: healthy")
+        ttk.Label(perf, textvariable=self.error_var, foreground="#f87171").grid(row=2, column=0, columnspan=9, sticky="w", padx=4, pady=2)
+
         ctl = ttk.LabelFrame(frame, text="OCR Regions (absolute screen regions)")
         ctl.pack(fill="x", pady=6)
 
@@ -236,6 +298,10 @@ class ControlGUI:
         self.preview_label.pack(padx=8, pady=8)
 
         self._update_region_label()
+
+    def _on_worker_error(self, message: str) -> None:
+        self.last_worker_error = message
+        LOGGER.error(message)
 
     def _update_preview_frame(self, mask) -> None:
         resized = cv2.resize(mask, (260, 90), interpolation=cv2.INTER_NEAREST)
@@ -357,6 +423,8 @@ class ControlGUI:
             self.overlay.hide()
 
     def _start_ocr(self) -> None:
+        self.last_worker_error = "No worker errors"
+        self.error_var.set("Worker: healthy")
         self.worker.start()
         self.run_label.set("OCR: running")
 
@@ -376,6 +444,7 @@ class ControlGUI:
 
     def _refresh_state(self) -> None:
         snap = self.state.snapshot()
+        self.error_var.set(f"Worker: {self.last_worker_error}")
         self.live_text.configure(state="normal")
         self.live_text.delete("1.0", "end")
         self.live_text.insert(
