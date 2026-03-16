@@ -300,6 +300,15 @@ class ControlGUI:
         preview_box = ttk.LabelFrame(content, text="Region Luma/Preprocess Preview")
         preview_box.pack(side="right", fill="both", expand=False)
 
+        toggles = ttk.Frame(preview_box)
+        toggles.pack(fill="x", padx=8, pady=4)
+        self.show_preview_a_var = tk.BooleanVar(value=True)
+        self.show_preview_b_var = tk.BooleanVar(value=True)
+        self.show_preview_timer_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(toggles, text="Show Team A", variable=self.show_preview_a_var, command=self._refresh_preview_toggle_state).pack(anchor="w")
+        ttk.Checkbutton(toggles, text="Show Team B", variable=self.show_preview_b_var, command=self._refresh_preview_toggle_state).pack(anchor="w")
+        ttk.Checkbutton(toggles, text="Show Timer", variable=self.show_preview_timer_var, command=self._refresh_preview_toggle_state).pack(anchor="w")
+
         self.preview_a_label = ttk.Label(preview_box, text="Team A: no preview")
         self.preview_a_label.pack(padx=8, pady=4)
         self.preview_b_label = ttk.Label(preview_box, text="Team B: no preview")
@@ -312,6 +321,17 @@ class ControlGUI:
     def _on_worker_error(self, message: str) -> None:
         self.last_worker_error = message
         LOGGER.error(message)
+
+    def _refresh_preview_toggle_state(self) -> None:
+        if not self.show_preview_a_var.get():
+            self.preview_a_label.configure(image="", text="Team A preview hidden")
+            self.preview_a_label.image = None
+        if not self.show_preview_b_var.get():
+            self.preview_b_label.configure(image="", text="Team B preview hidden")
+            self.preview_b_label.image = None
+        if not self.show_preview_timer_var.get():
+            self.preview_timer_label.configure(image="", text="Timer preview hidden")
+            self.preview_timer_label.image = None
 
     def _build_preview_photo(self, image, size=(260, 70)) -> ImageTk.PhotoImage:
         resized = cv2.resize(image, size, interpolation=cv2.INTER_NEAREST)
@@ -334,18 +354,29 @@ class ControlGUI:
             a_arr = self.latest_preview_arrays.get("a")
             b_arr = self.latest_preview_arrays.get("b")
             t_arr = self.latest_preview_arrays.get("timer")
-        if a_arr is not None:
+        if self.show_preview_a_var.get() and a_arr is not None:
             a_photo = self._build_preview_photo(a_arr)
             self.preview_a_label.configure(image=a_photo, text="")
             self.preview_a_label.image = a_photo
-        if b_arr is not None:
+        elif not self.show_preview_a_var.get():
+            self.preview_a_label.configure(image="", text="Team A preview hidden")
+            self.preview_a_label.image = None
+
+        if self.show_preview_b_var.get() and b_arr is not None:
             b_photo = self._build_preview_photo(b_arr)
             self.preview_b_label.configure(image=b_photo, text="")
             self.preview_b_label.image = b_photo
-        if t_arr is not None:
+        elif not self.show_preview_b_var.get():
+            self.preview_b_label.configure(image="", text="Team B preview hidden")
+            self.preview_b_label.image = None
+
+        if self.show_preview_timer_var.get() and t_arr is not None:
             t_photo = self._build_preview_photo(t_arr)
             self.preview_timer_label.configure(image=t_photo, text="")
             self.preview_timer_label.image = t_photo
+        elif not self.show_preview_timer_var.get():
+            self.preview_timer_label.configure(image="", text="Timer preview hidden")
+            self.preview_timer_label.image = None
         self.root.after(120, self._update_preview_image)
 
     def _handle_tk_exception(self, exc_type, exc_value, exc_traceback) -> None:
