@@ -65,24 +65,47 @@ if errorlevel 1 (
 )
 
 echo [INFO] NVIDIA GPU detected. Attempting CUDA-enabled PyTorch install...
-echo [INFO] Installing torch/torchvision/torchaudio from cu121 index...
-pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-if errorlevel 1 (
-  echo [WARN] CUDA-enabled PyTorch install failed. Falling back to current Torch package.
-  echo [WARN] You can retry manually after closing this window:
-  echo        pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+echo [INFO] Installing torch + torchvision from cu121 index...
+pip install --upgrade torch torchvision --index-url https://download.pytorch.org/whl/cu121
+if not errorlevel 1 (
+  echo [INFO] CUDA-enabled torch/torchvision install completed.
   exit /b 0
 )
 
-echo [INFO] CUDA-enabled PyTorch install completed.
+echo [WARN] Primary CUDA install attempt failed. Trying fallback install strategy...
+pip install --upgrade torch torchvision --extra-index-url https://download.pytorch.org/whl/cu121
+if not errorlevel 1 (
+  echo [INFO] Fallback CUDA install completed.
+  exit /b 0
+)
+
+echo [WARN] CUDA-enabled PyTorch install failed. Keeping current Torch package.
+echo [WARN] Manual retry options:
+echo        pip install --upgrade torch torchvision --index-url https://download.pytorch.org/whl/cu121
+echo        pip install --upgrade torch torchvision --extra-index-url https://download.pytorch.org/whl/cu121
 exit /b 0
 
 :print_torch_diagnostics
 python -c "import torch; print('[INFO] torch.__version__ =', torch.__version__); print('[INFO] torch.version.cuda =', torch.version.cuda); print('[INFO] torch.cuda.is_available =', torch.cuda.is_available()); print('[INFO] torch.cuda.device_count =', torch.cuda.device_count())" >nul 2>nul
 if errorlevel 1 (
   echo [INFO] Torch not importable yet for CUDA check.
+  exit /b 0
+)
+
+python -c "import torch; print('[INFO] torch.__version__ =', torch.__version__); print('[INFO] torch.version.cuda =', torch.version.cuda); print('[INFO] torch.cuda.is_available =', torch.cuda.is_available()); print('[INFO] torch.cuda.device_count =', torch.cuda.device_count())"
+
+python -c "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)"
+if not errorlevel 1 (
+  echo [INFO] CUDA is active. EasyOCR can use GPU.
+  exit /b 0
+)
+
+where nvidia-smi >nul 2>nul
+if errorlevel 1 (
+  echo [INFO] CPU-only mode expected on this machine.
 ) else (
-  python -c "import torch; print('[INFO] torch.__version__ =', torch.__version__); print('[INFO] torch.version.cuda =', torch.version.cuda); print('[INFO] torch.cuda.is_available =', torch.cuda.is_available()); print('[INFO] torch.cuda.device_count =', torch.cuda.device_count())"
+  echo [WARN] NVIDIA GPU detected but Torch is still CPU-only.
+  echo [WARN] Check Python version/wheel support and NVIDIA driver/CUDA compatibility.
 )
 exit /b 0
 
