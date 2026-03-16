@@ -119,6 +119,8 @@ scripts\run.bat --debug
 
 Debug mode saves preprocessed score crops into `debug_frames/` to help diagnose OCR failures.
 
+Both Windows batch scripts now pause on failures so the console stays open and you can read error messages before closing.
+
 ---
 
 ## Controls (fallback operations)
