@@ -104,6 +104,7 @@ Set:
 
 - `OCR_ENGINE=easyocr` or `tesseract`
 - `OCR_USE_GPU=auto|true|false` (EasyOCR only; `auto` enables GPU when CUDA is available)
+- `OCR_AUTO_TORCH_CUDA=true|false` (attempt one-time CUDA Torch repair at app startup when NVIDIA is detected)
 - `TESSERACT_CMD` path if Tesseract is not on PATH
 - `DEBUG_MODE`, `SHOW_PREVIEW`, `HOTKEYS_ENABLED`
 
@@ -127,6 +128,7 @@ Debug mode saves preprocessed score crops into `debug_frames/` to help diagnose 
 
 When using EasyOCR, GPU usage is auto-detected by default. Set `OCR_USE_GPU=true` to force GPU (with CUDA), or `OCR_USE_GPU=false` to force CPU.
 If logs still show CPU fallback, confirm `nvidia-smi` works and `torch.cuda.is_available = True` during `scripts\install.bat` output.
+By default, the app also attempts a one-time startup repair (`OCR_AUTO_TORCH_CUDA=true`) to install CUDA PyTorch wheels when NVIDIA hardware is present.
 
 ### GUI control panel
 

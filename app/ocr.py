@@ -3,8 +3,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+import importlib
 import logging
+import os
 import re
+import subprocess
+import sys
 import time
 import warnings
 
@@ -13,6 +17,7 @@ import numpy as np
 
 
 LOGGER = logging.getLogger("ocr")
+CUDA_REPAIR_ATTEMPTED = False
 
 
 @dataclass
@@ -39,6 +44,52 @@ class OCREngine(ABC):
         raise NotImplementedError
 
 
+def _has_nvidia_gpu() -> bool:
+    try:
+        proc = subprocess.run(["nvidia-smi"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=8)
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
+def _try_repair_torch_cuda() -> None:
+    global CUDA_REPAIR_ATTEMPTED
+    if CUDA_REPAIR_ATTEMPTED:
+        return
+    CUDA_REPAIR_ATTEMPTED = True
+
+    auto_fix = os.getenv("OCR_AUTO_TORCH_CUDA", "true").strip().lower() in {"1", "true", "yes", "on"}
+    if not auto_fix:
+        return
+    if not _has_nvidia_gpu():
+        return
+
+    LOGGER.warning("NVIDIA GPU detected but torch CUDA unavailable. Attempting one-time CUDA torch repair...")
+    cmd = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "torch",
+        "torchvision",
+        "torchaudio",
+        "--index-url",
+        "https://download.pytorch.org/whl/cu121",
+    ]
+    try:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        if proc.returncode != 0:
+            LOGGER.warning("CUDA torch repair failed (exit=%s).", proc.returncode)
+            return
+        importlib.invalidate_caches()
+        if "torch" in sys.modules:
+            del sys.modules["torch"]
+        LOGGER.info("CUDA torch repair command completed. Rechecking CUDA availability...")
+    except Exception as exc:
+        LOGGER.warning("CUDA torch repair attempt failed: %s", exc)
+
+
 def resolve_easyocr_gpu(use_gpu: bool | None) -> bool:
     if use_gpu is not None:
         if use_gpu:
@@ -47,6 +98,11 @@ def resolve_easyocr_gpu(use_gpu: bool | None) -> bool:
 
                 if torch.cuda.is_available():
                     LOGGER.info("EasyOCR GPU explicitly enabled (CUDA available).")
+                    return True
+                _try_repair_torch_cuda()
+                import torch as torch_retry
+                if torch_retry.cuda.is_available():
+                    LOGGER.info("EasyOCR GPU enabled after CUDA torch repair.")
                     return True
                 LOGGER.warning("EasyOCR GPU requested but CUDA is not available; falling back to CPU.")
                 return False
@@ -60,6 +116,12 @@ def resolve_easyocr_gpu(use_gpu: bool | None) -> bool:
         import torch
 
         has_cuda = bool(torch.cuda.is_available())
+        if not has_cuda:
+            _try_repair_torch_cuda()
+            import torch as torch_retry
+            has_cuda = bool(torch_retry.cuda.is_available())
+            torch = torch_retry
+
         LOGGER.info(
             "EasyOCR torch diagnostics: version=%s cuda_version=%s cuda_available=%s device_count=%s",
             getattr(torch, "__version__", "unknown"),
@@ -72,7 +134,7 @@ def resolve_easyocr_gpu(use_gpu: bool | None) -> bool:
             return True
         LOGGER.warning(
             "EasyOCR auto GPU detection: CUDA not available, using CPU. "
-            "If you have an NVIDIA GPU, reinstall with scripts\\install.bat to attempt CUDA PyTorch wheels."
+            "If you have an NVIDIA GPU, rerun scripts\install.bat to install CUDA PyTorch wheels."
         )
         return False
     except Exception as exc:
@@ -91,6 +153,7 @@ class EasyOCREngine(OCREngine):
                 message=".*pin_memory.*no accelerator is found.*",
                 category=UserWarning,
             )
+            logging.getLogger("easyocr.easyocr").setLevel(logging.ERROR)
         self.reader = easyocr.Reader(["en"], gpu=gpu)
 
     def read_score(self, image: np.ndarray) -> OCRResult:
